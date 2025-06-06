@@ -1,0 +1,83 @@
+---
+title: "North Sulawesi HHS"
+author: "Mariano Viz"
+date: "2025-06-02"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  warning = FALSE,  # suppress all warnings
+  message = FALSE   # optionally suppress package loading messages
+)
+library(tidyverse)
+library(here)
+library(readxl)
+library(readr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+
+```
+
+
+
+# Read in data and update col names using merged_hhs data approach
+```{r}
+# Step 1: Load ns_hhs dataset and chnage col names to english
+ns_hhs <- read_excel(here("data", "raw", "North_Sulawesi_HHS.xlsx")) %>% 
+  select(-Cek)
+
+kobo_4_local <- read_excel(here("data", "kobo", "hhs_kobo_mod_4.xlsx"))
+# Replace North Sulawesi column names with those from the kobo_4 file (already checked that they are equivalent!)
+names(ns_hhs) <- names(kobo_4_local)
+
+
+# Step 2: Load metadata
+metadata_url <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQc0btEwxARDVBC0Ny6ZCRlzoIjQ7txvbFoU-xlQOI97CP2tGNr4hPOskVGhr74dhCYQkBmxSm9zFkn/pub?output=csv"
+metadata <- read_csv(metadata_url)
+
+# Step 3: Define function to process dataset with metadata
+process_dataset <- function(dataset, metadata) {
+  column_map <- metadata %>%
+    separate_rows(`Original Column Name`, sep = "; ") %>%
+    select(`Original Column Name`, `Standardized Column Name`) %>%
+    distinct() %>%
+    group_by(`Original Column Name`) %>%
+    slice(1) %>%
+    ungroup() %>%
+    filter(`Original Column Name` %in% names(dataset))
+  
+  new_colnames <- names(dataset) %>%
+    map_chr(~ {
+      if (.x %in% column_map$`Original Column Name`) {
+        column_map$`Standardized Column Name`[column_map$`Original Column Name` == .x]
+      } else {
+        NA_character_
+      }
+    })
+  
+  names(dataset) <- new_colnames
+  dataset <- dataset %>%
+    select(any_of(metadata$`Standardized Column Name`))
+  
+  return(dataset)
+}
+
+# Step 4: Define function to remove "g99" note columns
+remove_g99_columns <- function(dataset) {
+  dataset %>% select(-starts_with("g99"))
+}
+
+# Step 5: Process and clean ns_hhs
+ns_hhs_processed <- process_dataset(ns_hhs, metadata)
+ns_hhs_clean <- remove_g99_columns(ns_hhs_processed)
+
+# Optional: Convert all columns to character (standardization)
+# ns_hhs_clean <- ns_hhs_clean %>%
+#   mutate(across(everything(), as.character))
+
+# View result
+glimpse(ns_hhs_clean)
+```
+

@@ -4339,4 +4339,164 @@ merged_hhs %>%
 ```
 
 
+```{r}
+
+# Unique values
+columns <- c(
+  "g9_ma_gear_a_nets",
+  "g9_ma_gear_b_dynamite",
+  "g9_ma_gear_braceamento",
+  "g9_ma_gear_c_hookline",
+  "g9_ma_gear_d_harpoon",
+  "g9_ma_gear_e_trawl",
+  "g9_ma_gear_estacada",
+  "g9_ma_gear_f_mosquito",
+  "g9_ma_gear_g_poison",
+  "g9_ma_gear_gancho",
+  "g9_ma_gear_h_gillnet",
+  "g9_ma_gear_i_gamboa",
+  "g9_ma_gear_j_quinia",
+  "g9_ma_gear_k_other_specify",
+  "g9_ma_gear_k_traps",
+  "g9_ma_gear_l_longline",
+  "g9_ma_gear_m_corral",
+  "g9_ma_gear_m_other",
+  "g9_ma_gear_n_matapi",
+  "g9_ma_gear_o_handline",
+  "g9_ma_gear_p_loop",
+  "g9_ma_gear_q_rag",
+  "g9_ma_gear_r_mesh",
+  "g9_ma_gear_s_other",
+  "g9_ma_gear_s_other_specify"
+)
+
+sapply(merged_hhs[columns], function(x) sum(!is.na(x)))
+
+# Just 5 observations on these columns
+
+```
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g5_gear_fixed_net))
+
+# Unique values
+unique(merged_hhs$g5_gear_fixed_net)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g5_gear_fixed_net_std = case_when(
+    str_detect(tolower(g5_gear_fixed_net), "^yes$") ~ "Yes",
+    str_detect(tolower(g5_gear_fixed_net), "^no$") ~ "No",
+    str_detect(tolower(g5_gear_fixed_net), "na|not answered") | is.na(g5_gear_fixed_net) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g5_gear_fixed_net_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g5_gear_fixed_net_std)) %>%
+  count(g5_gear_fixed_net) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g1_fmb_existing))
+
+# Unique values
+unique(merged_hhs$g1_fmb_existing)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g1_fmb_existing_std = case_when(
+    str_detect(tolower(g1_fmb_existing), "^yes$|^a\\. ya$|^ya$") ~ "Yes",
+    str_detect(tolower(g1_fmb_existing), "^no$|^b\\. tidak$|^tidak$") ~ "No",
+    str_detect(tolower(g1_fmb_existing), "na|not answered") | is.na(g1_fmb_existing) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g1_fmb_existing_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g1_fmb_existing_std)) %>%
+  count(g1_fmb_existing) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g5_gear_long_line))
+
+# Unique values
+unique(merged_hhs$g5_gear_long_line)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g5_gear_long_line_std = case_when(
+    str_detect(tolower(g5_gear_long_line), "^yes_own$|^a\\. ya.*|^b\\. ya.*|ya,") ~ "Yes",
+    str_detect(tolower(g5_gear_long_line), "^no$|^c\\. tidak$|^tidak$") ~ "No",
+    str_detect(tolower(g5_gear_long_line), "na|not answered") | is.na(g5_gear_long_line) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g5_gear_long_line_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g5_gear_long_line_std)) %>%
+  count(g5_gear_long_line) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g5_gear_traditional))
+
+# Unique values
+unique(merged_hhs$g5_gear_traditional)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g5_gear_traditional_std = case_when(
+    str_detect(tolower(g5_gear_traditional), "^yes_own$|^yes_not_own$|^a\\. ya.*|^b\\. ya.*|ya,") ~ "Yes",
+    str_detect(tolower(g5_gear_traditional), "^no$|^c\\. tidak$|^tidak$") ~ "No",
+    str_detect(tolower(g5_gear_traditional), "na|not answered") | is.na(g5_gear_traditional) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g5_gear_traditional_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g5_gear_traditional_std)) %>%
+  count(g5_gear_traditional) %>%
+  arrange(desc(n))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
