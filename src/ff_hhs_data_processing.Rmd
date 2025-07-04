@@ -22,6 +22,7 @@ library(sandwich)
 library(broom)
 library(rstatix)
 library(gridExtra)
+library(stringr)
 
 ```
 
@@ -415,6 +416,38 @@ unique(merged_hhs$g5_catch_future_vs_current_std)
 merged_hhs %>%
   filter(is.na(g5_catch_future_vs_current_std)) %>%
   count(g5_catch_future_vs_current) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g5_freq_fishing_high_profit))
+
+# Unique values
+unique(merged_hhs$g5_freq_fishing_high_profit)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g5_freq_fishing_high_profit_std = case_when(
+    str_detect(tolower(g5_freq_fishing_high_profit), "once or never|once_or_never|sekali atau tidak sama sekali|a\\. sekali atau tidak sama sekali") ~ "Once or never",
+    str_detect(tolower(g5_freq_fishing_high_profit), "^a few times$|few_times_season|beberapa kali per musim|b\\. beberapa kali per musim") ~ "A few times",
+    str_detect(tolower(g5_freq_fishing_high_profit), "few times per month|few times_month|beberapa kali dalam sebulan|c\\. beberapa kali dalam sebulan") ~ "A few times per month",
+    str_detect(tolower(g5_freq_fishing_high_profit), "1-2 per week|one_two_per_week|1-2 kali seminggu|d\\. 1-2 kali seminggu") ~ "1-2 per week",
+    str_detect(tolower(g5_freq_fishing_high_profit), "more than 1-2 times per week|more_than_one_two_week|3-4 per week|5-6 per week|7 per week|3-4 times per week|6 times per week|7 times per week|lebih dari 1-2 kali seminggu|e\\. lebih dari 1-2 kali seminggu") ~ "More than 1-2 times per week",
+    str_detect(tolower(g5_freq_fishing_high_profit), "not answered|not a fisher") | is.na(g5_freq_fishing_high_profit) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# NOTE: "Not a fisher" --> NA
+
+# Unique values
+unique(merged_hhs$g5_freq_fishing_high_profit_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g5_freq_fishing_high_profit_std)) %>%
+  count(g5_freq_fishing_high_profit) %>%
   arrange(desc(n))
 ```
 
@@ -912,6 +945,36 @@ merged_hhs %>%
   count(g7_emergency_friend) %>%
   arrange(desc(n))
 ```
+
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g1_ma_r_important))
+
+# Unique values
+unique(merged_hhs$g1_ma_r_important)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g1_ma_r_important_std = case_when(
+    str_detect(tolower(g1_ma_r_important), "^yes$|^a\\. ya$|^ya$|^ya\\.$") ~ "Yes",
+    str_detect(tolower(g1_ma_r_important), "^no$|^b\\. tidak$|^tidak$") ~ "No",
+    str_detect(tolower(g1_ma_r_important), "tidak tahu|c\\. tidak tahu|don’t know") ~ "Don’t know",
+    str_detect(tolower(g1_ma_r_important), "^na$|not answered|not a fisher|^$") | is.na(g1_ma_r_important) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g1_ma_r_important_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g1_ma_r_important_std)) %>%
+  count(g1_ma_r_important) %>%
+  arrange(desc(n))
+```
+
 
 
 ```{r}
@@ -1639,639 +1702,111 @@ merged_hhs %>%
 ```
 
 
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_barrier))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_barrier)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_barrier_std = case_when(
-    str_detect(tolower(g9_ma_gear_barrier), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_barrier), "^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_barrier), "^unknown$|tidak tahu|c\\. tidak tahu") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_barrier_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_barrier_std)) %>%
-  count(g9_ma_gear_barrier) %>%
-  arrange(desc(n))
-```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_corral))
+sum(is.na(merged_hhs$g9_restrictions_ma_gear))
 
 # Unique values
-unique(merged_hhs$g9_ma_gear_corral)
+unique(merged_hhs$g9_restrictions_ma_gear)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_corral_std = case_when(
-    str_detect(tolower(g9_ma_gear_corral), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_corral), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_corral), "^unknown$") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_corral_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_corral_std)) %>%
-  count(g9_ma_gear_corral) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_dynamite))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_dynamite)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_dynamite_std = case_when(
-    str_detect(tolower(g9_ma_gear_dynamite), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_dynamite), "^not permitted$|^not_permitted$|b\\. tidak diizinkan|tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_dynamite), "^unknown$") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_dynamite), "not answered|not a fisher") ~ NA_character_,
+  mutate(g9_restrictions_ma_gear_std = case_when(
+    str_detect(tolower(g9_restrictions_ma_gear), "^no$|b\\. tidak") ~ "No",
+    str_detect(tolower(g9_restrictions_ma_gear), "^yes$|a\\. ya|^ya$") ~ "Yes",
+    str_detect(tolower(g9_restrictions_ma_gear), "tidak tahu|c\\. tidak tahu") ~ "Don’t know",
+    str_detect(tolower(g9_restrictions_ma_gear), "not answered|not a fisher|^na$") ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # NOTE: "Not a fisher" --> NA
 
 # Unique values
-unique(merged_hhs$g9_ma_gear_dynamite_std)
+unique(merged_hhs$g9_restrictions_ma_gear_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g9_ma_gear_dynamite_std)) %>%
-  count(g9_ma_gear_dynamite) %>%
+  filter(is.na(g9_restrictions_ma_gear_std)) %>%
+  count(g9_restrictions_ma_gear) %>%
   arrange(desc(n))
 ```
 
 
 
 ```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_gamboa))
+# List of column names to inspect
+gear_cols <- c(
+  "g9_ma_gear_barrier",
+  "g9_ma_gear_braceamento",
+  "g9_ma_gear_cast_net",
+  "g9_ma_gear_corral",
+  "g9_ma_gear_dynamite",
+  "g9_ma_gear_estacada",
+  "g9_ma_gear_gamboa",
+  "g9_ma_gear_gancho",
+  "g9_ma_gear_gillnet",
+  "g9_ma_gear_gleaning",
+  "g9_ma_gear_handline",
+  "g9_ma_gear_harpoon",
+  "g9_ma_gear_hookline",
+  "g9_ma_gear_liftnet",
+  "g9_ma_gear_longline",
+  "g9_ma_gear_loop",
+  "g9_ma_gear_matapi",
+  "g9_ma_gear_mesh",
+  "g9_ma_gear_mosquito",
+  "g9_ma_gear_multiple_pole_and_lines",
+  "g9_ma_gear_nets",
+  "g9_ma_gear_other",
+  "g9_ma_gear_poison",
+  "g9_ma_gear_pot",
+  "g9_ma_gear_purse_seine",
+  "g9_ma_gear_quinia",
+  "g9_ma_gear_rag",
+  "g9_ma_gear_seine",
+  "g9_ma_gear_siru",
+  "g9_ma_gear_speargun",
+  "g9_ma_gear_surround",
+  "g9_ma_gear_trap",
+  "g9_ma_gear_trawl"
+)
 
-# Unique values
-unique(merged_hhs$g9_ma_gear_gamboa)
 
-# Standardize entries
+# Check unique values for each column
+lapply(setNames(gear_cols, gear_cols), function(col) unique(merged_hhs[[col]]))
+
+# Standardization function
+standardize_gear_response <- function(x) {
+  x_lower <- tolower(trimws(x))
+  
+  case_when(
+    x_lower %in% c("permitted", "diizinkan", "a. diizinkan", "yes", "ya", "a. ya", "ya.") ~ "Permitted",
+    x_lower %in% c("not permitted", "not_permitted", "tidak diizinkan", "b. tidak diizinkan", "b. tidak", "no", "tidak") ~ "Not permitted",
+    x_lower %in% c("don’t know", "c. tidak tahu", "tidak tahu", "unknown") ~ "Don’t know",
+    x_lower %in% c("", "na", "not answered", "not a fisher") | is.na(x) ~ NA_character_,
+    TRUE ~ NA_character_  # fallback for unexpected inputs
+  )
+}
+
+# Apply across gear columns
 merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_gamboa_std = case_when(
-    str_detect(tolower(g9_ma_gear_gamboa), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_gamboa), "^not permitted$|^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_gamboa), "^unknown$") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_gamboa), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
+  mutate(across(all_of(gear_cols), standardize_gear_response))
+
 
 # NOTE: "Not a fisher" --> NA
 
-# Unique values
-unique(merged_hhs$g9_ma_gear_gamboa_std)
 
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_gamboa_std)) %>%
-  count(g9_ma_gear_gamboa) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_gillnet))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_gillnet)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_gillnet_std = case_when(
-    str_detect(tolower(g9_ma_gear_gillnet), "^permitted$|a\\. diizinkan|diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_gillnet), "^not permitted$|^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_gillnet), "^unknown$|c\\. tidak tahu") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_gillnet), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_gillnet_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_gillnet_std)) %>%
-  count(g9_ma_gear_gillnet) %>%
-  arrange(desc(n))
-```
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_gleaning))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_gleaning)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_gleaning_std = case_when(
-    str_detect(tolower(g9_ma_gear_gleaning), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_gleaning), "^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_gleaning), "^unknown$|tidak tahu|c\\. tidak tahu") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_gleaning_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_gleaning_std)) %>%
-  count(g9_ma_gear_gleaning) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_handline))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_handline)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_handline_std = case_when(
-    str_detect(tolower(g9_ma_gear_handline), "^permitted$|a\\. diizinkan|^diizinkan$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_handline), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_handline), "^unknown$") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_handline_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_handline_std)) %>%
-  count(g9_ma_gear_handline) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_harpoon))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_harpoon)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_harpoon_std = case_when(
-    str_detect(tolower(g9_ma_gear_harpoon), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_harpoon), "^not permitted$|^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_harpoon), "^unknown$|tidak tahu|c\\. tidak tahu") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_harpoon), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_harpoon_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_harpoon_std)) %>%
-  count(g9_ma_gear_harpoon) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_hookline))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_hookline)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_hookline_std = case_when(
-    str_detect(tolower(g9_ma_gear_hookline), "^permitted$|a\\. diizinkan|^diizinkan$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_hookline), "^not permitted$|^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_hookline), "^unknown$|c\\. tidak tahu|tidak tahu") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_hookline), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_hookline_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_hookline_std)) %>%
-  count(g9_ma_gear_hookline) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_liftnet))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_liftnet)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_liftnet_std = case_when(
-    str_detect(tolower(g9_ma_gear_liftnet), "^permitted$|a\\. diizinkan|^diizinkan$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_liftnet), "^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_liftnet), "^unknown$|c\\. tidak tahu|tidak tahu") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_liftnet_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_liftnet_std)) %>%
-  count(g9_ma_gear_liftnet) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_longline))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_longline)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_longline_std = case_when(
-    str_detect(tolower(g9_ma_gear_longline), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_longline), "^not permitted$|^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_longline), "^unknown$|c\\. tidak tahu|tidak tahu") ~ "Don’t know",
-    str_trim(g9_ma_gear_longline) == "" ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_longline_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_longline_std)) %>%
-  count(g9_ma_gear_longline) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_loop))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_loop)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_loop_std = case_when(
-    str_detect(tolower(g9_ma_gear_loop), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_loop), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_loop), "^unknown$") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_loop_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_loop_std)) %>%
-  count(g9_ma_gear_loop) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_matapi))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_matapi)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_matapi_std = case_when(
-    str_detect(tolower(g9_ma_gear_matapi), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_matapi), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_matapi), "^unknown$") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_matapi_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_matapi_std)) %>%
-  count(g9_ma_gear_matapi) %>%
-  arrange(desc(n))
-```
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_mesh))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_mesh)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_mesh_std = case_when(
-    str_detect(tolower(g9_ma_gear_mesh), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_mesh), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_mesh), "^unknown$") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_mesh_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_mesh_std)) %>%
-  count(g9_ma_gear_mesh) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_mosquito))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_mosquito)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_mosquito_std = case_when(
-    str_detect(tolower(g9_ma_gear_mosquito), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_mosquito), "^not permitted$|^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_mosquito), "^unknown$|c\\. tidak tahu|tidak tahu") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_mosquito), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_mosquito_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_mosquito_std)) %>%
-  count(g9_ma_gear_mosquito) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_nets))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_nets)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_nets_std = case_when(
-    str_detect(tolower(g9_ma_gear_nets), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_nets), "^not permitted$|^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_nets), "^unknown$") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_nets), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_nets_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_nets_std)) %>%
-  count(g9_ma_gear_nets) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_other))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_other)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_other_std = case_when(
-    str_detect(tolower(g9_ma_gear_other), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_other), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_other), "^unknown$|tidak tahu|c\\. tidak tahu") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_other), "not answered|not applicable") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_other_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_other_std)) %>%
-  count(g9_ma_gear_other) %>%
-  arrange(desc(n))
+# unique(merged_hhs$g9_ma_gear_other_specify)
 ```
 
 
 
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_poison))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_poison)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_poison_std = case_when(
-    str_detect(tolower(g9_ma_gear_poison), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_poison), "^not permitted$|^not_permitted$|b\\. tidak diizinkan|^tidak diizinkan$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_poison), "^unknown$") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_poison), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_poison_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_poison_std)) %>%
-  count(g9_ma_gear_poison) %>%
-  arrange(desc(n))
-```
 
 
 
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_pot))
 
-# Unique values
-unique(merged_hhs$g9_ma_gear_pot)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_pot_std = case_when(
-    str_detect(tolower(g9_ma_gear_pot), "^permitted$|a\\. diizinkan") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_pot), "^not_permitted$|b\\. tidak diizinkan") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_pot), "^unknown$|c\\. tidak tahu|tidak tahu") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_pot_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_pot_std)) %>%
-  count(g9_ma_gear_pot) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_quinia))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_quinia)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_quinia_std = case_when(
-    str_detect(tolower(g9_ma_gear_quinia), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_quinia), "^not permitted$|^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_quinia), "^unknown$") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_quinia), "not answered|not a fisher") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_quinia_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_quinia_std)) %>%
-  count(g9_ma_gear_quinia) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_rag))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_rag)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_rag_std = case_when(
-    str_detect(tolower(g9_ma_gear_rag), "^permitted$") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_rag), "^not_permitted$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_rag), "^unknown$") ~ "Don’t know",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_rag_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_rag_std)) %>%
-  count(g9_ma_gear_rag) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g9_ma_gear_restrictions))
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_restrictions)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g9_ma_gear_restrictions_std = case_when(
-    str_detect(tolower(g9_ma_gear_restrictions), "^no$|b\\. tidak") ~ "Permitted",
-    str_detect(tolower(g9_ma_gear_restrictions), "^yes$|a\\. ya|^ya$") ~ "Not permitted",
-    str_detect(tolower(g9_ma_gear_restrictions), "tidak tahu|c\\. tidak tahu") ~ "Don’t know",
-    str_detect(tolower(g9_ma_gear_restrictions), "not answered|not a fisher|^na$") ~ NA_character_,
-    TRUE ~ NA_character_
-  ))
-
-# NOTE: "Not a fisher" --> NA
-
-# Unique values
-unique(merged_hhs$g9_ma_gear_restrictions_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g9_ma_gear_restrictions_std)) %>%
-  count(g9_ma_gear_restrictions) %>%
-  arrange(desc(n))
-```
 
 
 ```{r}
@@ -2592,173 +2127,173 @@ merged_hhs %>%
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_fishing_permission))
+sum(is.na(merged_hhs$g10_benefits_comply_agreement_fishing_permission))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_fishing_permission)
+unique(merged_hhs$g10_benefits_comply_agreement_fishing_permission)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_fishing_permission_std = case_when(
-    str_detect(tolower(g10_benefits_comply_fishing_permission), "^strongly_disagree$") ~ "Strongly disagree",
-    str_detect(tolower(g10_benefits_comply_fishing_permission), "^disagree$") ~ "Disagree",
-    str_detect(tolower(g10_benefits_comply_fishing_permission), "^neither$") ~ "Neither agree nor disagree",
-    str_detect(tolower(g10_benefits_comply_fishing_permission), "^agree$") ~ "Agree",
-    str_detect(tolower(g10_benefits_comply_fishing_permission), "^strongly_agree$") ~ "Strongly agree",
+  mutate(g10_benefits_comply_agreement_fishing_permission_std = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_fishing_permission), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_fishing_permission), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_fishing_permission), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_fishing_permission), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_fishing_permission), "^strongly_agree$") ~ "Strongly agree",
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_fishing_permission_std)
+unique(merged_hhs$g10_benefits_comply_agreement_fishing_permission_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_fishing_permission_std)) %>%
-  count(g10_benefits_comply_fishing_permission) %>%
+  filter(is.na(g10_benefits_comply_agreement_fishing_permission_std)) %>%
+  count(g10_benefits_comply_agreement_fishing_permission) %>%
   arrange(desc(n))
 ```
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_gear))
+sum(is.na(merged_hhs$g10_benefits_comply_agreement_gear))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_gear)
+unique(merged_hhs$g10_benefits_comply_agreement_gear)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_gear_std = case_when(
-    str_detect(tolower(g10_benefits_comply_gear), "^strongly_disagree$") ~ "Strongly disagree",
-    str_detect(tolower(g10_benefits_comply_gear), "^disagree$") ~ "Disagree",
-    str_detect(tolower(g10_benefits_comply_gear), "^neither$") ~ "Neither agree nor disagree",
-    str_detect(tolower(g10_benefits_comply_gear), "^agree$") ~ "Agree",
-    str_detect(tolower(g10_benefits_comply_gear), "^strongly_agree$") ~ "Strongly agree",
+  mutate(g10_benefits_comply_agreement_gear_std = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^strongly_agree$") ~ "Strongly agree",
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_gear_std)
+unique(merged_hhs$g10_benefits_comply_agreement_gear_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_gear_std)) %>%
-  count(g10_benefits_comply_gear) %>%
-  arrange(desc(n))
-```
-
-
-```{r}
-# Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_licensing))
-
-# Unique values
-unique(merged_hhs$g10_benefits_comply_licensing)
-
-# Standardize entries
-merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_licensing_std = case_when(
-    str_detect(tolower(g10_benefits_comply_licensing), "^strongly_disagree$") ~ "Strongly disagree",
-    str_detect(tolower(g10_benefits_comply_licensing), "^disagree$") ~ "Disagree",
-    str_detect(tolower(g10_benefits_comply_licensing), "^neither$") ~ "Neither agree nor disagree",
-    str_detect(tolower(g10_benefits_comply_licensing), "^agree$") ~ "Agree",
-    str_detect(tolower(g10_benefits_comply_licensing), "^strongly_agree$") ~ "Strongly agree",
-    TRUE ~ NA_character_
-  ))
-
-# Unique values
-unique(merged_hhs$g10_benefits_comply_licensing_std)
-
-# Check entries re-classified as NA
-merged_hhs %>%
-  filter(is.na(g10_benefits_comply_licensing_std)) %>%
-  count(g10_benefits_comply_licensing) %>%
+  filter(is.na(g10_benefits_comply_agreement_gear_std)) %>%
+  count(g10_benefits_comply_agreement_gear) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_min_fish_size))
+sum(is.na(merged_hhs$g10_benefits_comply_agreement_licensing))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_min_fish_size)
+unique(merged_hhs$g10_benefits_comply_agreement_licensing)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_min_fish_size_std = case_when(
-    str_detect(tolower(g10_benefits_comply_min_fish_size), "^strongly_disagree$") ~ "Strongly disagree",
-    str_detect(tolower(g10_benefits_comply_min_fish_size), "^disagree$") ~ "Disagree",
-    str_detect(tolower(g10_benefits_comply_min_fish_size), "^neither$") ~ "Neither agree nor disagree",
-    str_detect(tolower(g10_benefits_comply_min_fish_size), "^agree$") ~ "Agree",
-    str_detect(tolower(g10_benefits_comply_min_fish_size), "^strongly_agree$") ~ "Strongly agree",
+  mutate(g10_benefits_comply_agreement_licensing_std = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_licensing), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_licensing), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_licensing), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_licensing), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_licensing), "^strongly_agree$") ~ "Strongly agree",
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_min_fish_size_std)
+unique(merged_hhs$g10_benefits_comply_agreement_licensing_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_min_fish_size_std)) %>%
-  count(g10_benefits_comply_min_fish_size) %>%
+  filter(is.na(g10_benefits_comply_agreement_licensing_std)) %>%
+  count(g10_benefits_comply_agreement_licensing) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_no_fishing))
+sum(is.na(merged_hhs$g10_benefits_comply_agreement_min_fish_size))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_no_fishing)
+unique(merged_hhs$g10_benefits_comply_agreement_min_fish_size)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_no_fishing_std = case_when(
-    str_detect(tolower(g10_benefits_comply_no_fishing), "^strongly_disagree$") ~ "Strongly disagree",
-    str_detect(tolower(g10_benefits_comply_no_fishing), "^disagree$") ~ "Disagree",
-    str_detect(tolower(g10_benefits_comply_no_fishing), "^neither$") ~ "Neither agree nor disagree",
-    str_detect(tolower(g10_benefits_comply_no_fishing), "^agree$") ~ "Agree",
-    str_detect(tolower(g10_benefits_comply_no_fishing), "^strongly_agree$") ~ "Strongly agree",
+  mutate(g10_benefits_comply_agreement_min_fish_size_std = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_min_fish_size), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_min_fish_size), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_min_fish_size), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_min_fish_size), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_min_fish_size), "^strongly_agree$") ~ "Strongly agree",
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_no_fishing_std)
+unique(merged_hhs$g10_benefits_comply_agreement_min_fish_size_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_no_fishing_std)) %>%
-  count(g10_benefits_comply_no_fishing) %>%
+  filter(is.na(g10_benefits_comply_agreement_min_fish_size_std)) %>%
+  count(g10_benefits_comply_agreement_min_fish_size) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_other))
+sum(is.na(merged_hhs$g10_benefits_comply_agreement_no_fishing))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_other)
+unique(merged_hhs$g10_benefits_comply_agreement_no_fishing)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_other_std = case_when(
-    str_detect(tolower(g10_benefits_comply_other), "^strongly_disagree$") ~ "Strongly disagree",
-    str_detect(tolower(g10_benefits_comply_other), "^disagree$") ~ "Disagree",
-    str_detect(tolower(g10_benefits_comply_other), "^neither$") ~ "Neither agree nor disagree",
-    str_detect(tolower(g10_benefits_comply_other), "^agree$") ~ "Agree",
-    str_detect(tolower(g10_benefits_comply_other), "^strongly_agree$") ~ "Strongly agree",
+  mutate(g10_benefits_comply_agreement_no_fishing_std = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_no_fishing), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_no_fishing), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_no_fishing), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_no_fishing), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_no_fishing), "^strongly_agree$") ~ "Strongly agree",
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_other_std)
+unique(merged_hhs$g10_benefits_comply_agreement_no_fishing_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_other_std)) %>%
-  count(g10_benefits_comply_other) %>%
+  filter(is.na(g10_benefits_comply_agreement_no_fishing_std)) %>%
+  count(g10_benefits_comply_agreement_no_fishing) %>%
+  arrange(desc(n))
+```
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g10_benefits_comply_agreement_other))
+
+# Unique values
+unique(merged_hhs$g10_benefits_comply_agreement_other)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g10_benefits_comply_agreement_other_std = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_other), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_other), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_other), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_other), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_other), "^strongly_agree$") ~ "Strongly agree",
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g10_benefits_comply_agreement_other_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g10_benefits_comply_agreement_other_std)) %>%
+  count(g10_benefits_comply_agreement_other) %>%
   arrange(desc(n))
 ```
 
@@ -3226,162 +2761,162 @@ merged_hhs %>%
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_b_fishing_permission))
+sum(is.na(merged_hhs$g10_benefits_comply_knowledge_fishing_permission))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_b_fishing_permission)
+unique(merged_hhs$g10_benefits_comply_knowledge_fishing_permission)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_b_fishing_permission_std = case_when(
-    str_detect(tolower(g10_benefits_comply_b_fishing_permission), "^yes$|^ya$|a\\. ya") ~ "Yes",
-    str_detect(tolower(g10_benefits_comply_b_fishing_permission), "^no$|b\\. tidak|^tidak$") ~ "No",
-    str_detect(tolower(g10_benefits_comply_b_fishing_permission), "^$") | is.na(g10_benefits_comply_b_fishing_permission) ~ NA_character_,
+  mutate(g10_benefits_comply_knowledge_fishing_permission_std = case_when(
+    str_detect(tolower(g10_benefits_comply_knowledge_fishing_permission), "^yes$|^ya$|a\\. ya") ~ "Yes",
+    str_detect(tolower(g10_benefits_comply_knowledge_fishing_permission), "^no$|b\\. tidak|^tidak$") ~ "No",
+    str_detect(tolower(g10_benefits_comply_knowledge_fishing_permission), "^$") | is.na(g10_benefits_comply_knowledge_fishing_permission) ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_b_fishing_permission_std)
+unique(merged_hhs$g10_benefits_comply_knowledge_fishing_permission_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_b_fishing_permission_std)) %>%
-  count(g10_benefits_comply_b_fishing_permission) %>%
+  filter(is.na(g10_benefits_comply_knowledge_fishing_permission_std)) %>%
+  count(g10_benefits_comply_knowledge_fishing_permission) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_c_gear))
+sum(is.na(merged_hhs$g10_benefits_comply_knowledge_gear))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_c_gear)
+unique(merged_hhs$g10_benefits_comply_knowledge_gear)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_c_gear_std = case_when(
-    str_detect(tolower(g10_benefits_comply_c_gear), "^yes$|^ya$|a\\. ya") ~ "Yes",
-    str_detect(tolower(g10_benefits_comply_c_gear), "^no$|b\\. tidak|^tidak$") ~ "No",
-    str_detect(tolower(g10_benefits_comply_c_gear), "^$") | is.na(g10_benefits_comply_c_gear) ~ NA_character_,
+  mutate(g10_benefits_comply_knowledge_gear_std = case_when(
+    str_detect(tolower(g10_benefits_comply_knowledge_gear), "^yes$|^ya$|a\\. ya") ~ "Yes",
+    str_detect(tolower(g10_benefits_comply_knowledge_gear), "^no$|b\\. tidak|^tidak$") ~ "No",
+    str_detect(tolower(g10_benefits_comply_knowledge_gear), "^$") | is.na(g10_benefits_comply_knowledge_gear) ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_c_gear_std)
+unique(merged_hhs$g10_benefits_comply_knowledge_gear_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_c_gear_std)) %>%
-  count(g10_benefits_comply_c_gear) %>%
+  filter(is.na(g10_benefits_comply_knowledge_gear_std)) %>%
+  count(g10_benefits_comply_knowledge_gear) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_a_licensing))
+sum(is.na(merged_hhs$g10_benefits_comply_knowledge_licensing))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_a_licensing)
+unique(merged_hhs$g10_benefits_comply_knowledge_licensing)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_a_licensing_std = case_when(
-    str_detect(tolower(g10_benefits_comply_a_licensing), "^yes$|^ya$|a\\. ya") ~ "Yes",
-    str_detect(tolower(g10_benefits_comply_a_licensing), "^no$|b\\. tidak|^tidak$") ~ "No",
-    str_detect(tolower(g10_benefits_comply_a_licensing), "^$") | is.na(g10_benefits_comply_a_licensing) ~ NA_character_,
+  mutate(g10_benefits_comply_knowledge_licensing_std = case_when(
+    str_detect(tolower(g10_benefits_comply_knowledge_licensing), "^yes$|^ya$|a\\. ya") ~ "Yes",
+    str_detect(tolower(g10_benefits_comply_knowledge_licensing), "^no$|b\\. tidak|^tidak$") ~ "No",
+    str_detect(tolower(g10_benefits_comply_knowledge_licensing), "^$") | is.na(g10_benefits_comply_knowledge_licensing) ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_a_licensing_std)
+unique(merged_hhs$g10_benefits_comply_knowledge_licensing_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_a_licensing_std)) %>%
-  count(g10_benefits_comply_a_licensing) %>%
+  filter(is.na(g10_benefits_comply_knowledge_licensing_std)) %>%
+  count(g10_benefits_comply_knowledge_licensing) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_e_min_fish_size))
+sum(is.na(merged_hhs$g10_benefits_comply_knowledge_min_fish_size))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_e_min_fish_size)
+unique(merged_hhs$g10_benefits_comply_knowledge_min_fish_size)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_e_min_fish_size_std = case_when(
-    str_detect(tolower(g10_benefits_comply_e_min_fish_size), "^yes$|^ya$|a\\. ya") ~ "Yes",
-    str_detect(tolower(g10_benefits_comply_e_min_fish_size), "^no$|^tidak$|b\\. tidak") ~ "No",
-    str_detect(tolower(g10_benefits_comply_e_min_fish_size), "^$") | is.na(g10_benefits_comply_e_min_fish_size) ~ NA_character_,
+  mutate(g10_benefits_comply_knowledge_min_fish_size_std = case_when(
+    str_detect(tolower(g10_benefits_comply_knowledge_min_fish_size), "^yes$|^ya$|a\\. ya") ~ "Yes",
+    str_detect(tolower(g10_benefits_comply_knowledge_min_fish_size), "^no$|^tidak$|b\\. tidak") ~ "No",
+    str_detect(tolower(g10_benefits_comply_knowledge_min_fish_size), "^$") | is.na(g10_benefits_comply_knowledge_min_fish_size) ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_e_min_fish_size_std)
+unique(merged_hhs$g10_benefits_comply_knowledge_min_fish_size_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_e_min_fish_size_std)) %>%
-  count(g10_benefits_comply_e_min_fish_size) %>%
+  filter(is.na(g10_benefits_comply_knowledge_min_fish_size_std)) %>%
+  count(g10_benefits_comply_knowledge_min_fish_size_std) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_f_other))
+sum(is.na(merged_hhs$g10_benefits_comply_knowledge_other))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_f_other)
+unique(merged_hhs$g10_benefits_comply_knowledge_other)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_f_other_std = case_when(
-    str_detect(tolower(g10_benefits_comply_f_other), "^yes$|^ya$|a\\. ya") ~ "Yes",
-    str_detect(tolower(g10_benefits_comply_f_other), "^no$|^tidak$|b\\. tidak") ~ "No",
-    is.na(g10_benefits_comply_f_other) ~ NA_character_,
+  mutate(g10_benefits_comply_knowledge_other_std = case_when(
+    str_detect(tolower(g10_benefits_comply_knowledge_other), "^yes$|^ya$|a\\. ya") ~ "Yes",
+    str_detect(tolower(g10_benefits_comply_knowledge_other), "^no$|^tidak$|b\\. tidak") ~ "No",
+    is.na(g10_benefits_comply_knowledge_other) ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_f_other_std)
+unique(merged_hhs$g10_benefits_comply_knowledge_other_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_f_other_std)) %>%
-  count(g10_benefits_comply_f_other) %>%
+  filter(is.na(g10_benefits_comply_knowledge_other_std)) %>%
+  count(g10_benefits_comply_knowledge_other) %>%
   arrange(desc(n))
 ```
 
 
 ```{r}
 # Count number of NA values 
-sum(is.na(merged_hhs$g10_benefits_comply_d_reserve_restrict))
+sum(is.na(merged_hhs$g10_benefits_comply_knowledge_reserve_restrict))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_d_reserve_restrict)
+unique(merged_hhs$g10_benefits_comply_knowledge_reserve_restrict)
 
 # Standardize entries
 merged_hhs <- merged_hhs %>%
-  mutate(g10_benefits_comply_d_reserve_restrict_std = case_when(
-    str_detect(tolower(g10_benefits_comply_d_reserve_restrict), "^yes$|^ya$|a\\. ya") ~ "Yes",
-    str_detect(tolower(g10_benefits_comply_d_reserve_restrict), "^no$|^tidak$|b\\. tidak") ~ "No",
-    is.na(g10_benefits_comply_d_reserve_restrict) | str_trim(g10_benefits_comply_d_reserve_restrict) == "" ~ NA_character_,
+  mutate(g10_benefits_comply_knowledge_reserve_restrict_std = case_when(
+    str_detect(tolower(g10_benefits_comply_knowledge_reserve_restrict), "^yes$|^ya$|a\\. ya") ~ "Yes",
+    str_detect(tolower(g10_benefits_comply_knowledge_reserve_restrict), "^no$|^tidak$|b\\. tidak") ~ "No",
+    is.na(g10_benefits_comply_knowledge_reserve_restrict) | str_trim(g10_benefits_comply_knowledge_reserve_restrict) == "" ~ NA_character_,
     TRUE ~ NA_character_
   ))
 
 # Unique values
-unique(merged_hhs$g10_benefits_comply_d_reserve_restrict_std)
+unique(merged_hhs$g10_benefits_comply_knowledge_reserve_restrict_std)
 
 # Check entries re-classified as NA
 merged_hhs %>%
-  filter(is.na(g10_benefits_comply_d_reserve_restrict_std)) %>%
-  count(g10_benefits_comply_d_reserve_restrict) %>%
+  filter(is.na(g10_benefits_comply_knowledge_reserve_restrict_std)) %>%
+  count(g10_benefits_comply_knowledge_reserve_restrict) %>%
   arrange(desc(n))
 ```
 
@@ -4340,44 +3875,6 @@ merged_hhs %>%
 
 
 ```{r}
-
-# Unique values
-columns <- c(
-  "g9_ma_gear_a_nets",
-  "g9_ma_gear_b_dynamite",
-  "g9_ma_gear_braceamento",
-  "g9_ma_gear_c_hookline",
-  "g9_ma_gear_d_harpoon",
-  "g9_ma_gear_e_trawl",
-  "g9_ma_gear_estacada",
-  "g9_ma_gear_f_mosquito",
-  "g9_ma_gear_g_poison",
-  "g9_ma_gear_gancho",
-  "g9_ma_gear_h_gillnet",
-  "g9_ma_gear_i_gamboa",
-  "g9_ma_gear_j_quinia",
-  "g9_ma_gear_k_other_specify",
-  "g9_ma_gear_k_traps",
-  "g9_ma_gear_l_longline",
-  "g9_ma_gear_m_corral",
-  "g9_ma_gear_m_other",
-  "g9_ma_gear_n_matapi",
-  "g9_ma_gear_o_handline",
-  "g9_ma_gear_p_loop",
-  "g9_ma_gear_q_rag",
-  "g9_ma_gear_r_mesh",
-  "g9_ma_gear_s_other",
-  "g9_ma_gear_s_other_specify"
-)
-
-sapply(merged_hhs[columns], function(x) sum(!is.na(x)))
-
-# Just 5 observations on these columns
-
-```
-
-
-```{r}
 # Count number of NA values 
 sum(is.na(merged_hhs$g5_gear_fixed_net))
 
@@ -4485,12 +3982,555 @@ merged_hhs %>%
 ```
 
 
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g10_enforcement_regulation_fishers_reserves_caught))
+
+# Unique values
+unique(merged_hhs$g10_enforcement_regulation_fishers_reserves_caught)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g10_enforcement_regulation_fishers_reserves_caught_std = case_when(
+    str_trim(tolower(g10_enforcement_regulation_fishers_reserves_caught)) %in% as.character(0:10) ~ g10_enforcement_regulation_fishers_reserves_caught,
+    str_detect(tolower(g10_enforcement_regulation_fishers_reserves_caught), "na|tidak tahu") |
+      is.na(g10_enforcement_regulation_fishers_reserves_caught) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g10_enforcement_regulation_fishers_reserves_caught_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g10_enforcement_regulation_fishers_reserves_caught_std)) %>%
+  count(g10_enforcement_regulation_fishers_reserves_caught) %>%
+  arrange(desc(n))
+```
+
+
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g10_enforcement_regulation_fishers_violate_fishing_rules))
+
+# Unique values
+unique(merged_hhs$g10_enforcement_regulation_fishers_violate_fishing_rules)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g10_enforcement_regulation_fishers_violate_fishing_rules_std = case_when(
+    str_trim(tolower(g10_enforcement_regulation_fishers_violate_fishing_rules)) %in% as.character(0:10) ~ g10_enforcement_regulation_fishers_violate_fishing_rules,
+    str_detect(tolower(g10_enforcement_regulation_fishers_violate_fishing_rules), "na|tidak tahu") |
+      is.na(g10_enforcement_regulation_fishers_violate_fishing_rules) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g10_enforcement_regulation_fishers_violate_fishing_rules_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g10_enforcement_regulation_fishers_violate_fishing_rules_std)) %>%
+  count(g10_enforcement_regulation_fishers_violate_fishing_rules) %>%
+  arrange(desc(n))
+```
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g9_reserve_boundry_aware))
+
+# Unique values
+unique(merged_hhs$g9_reserve_boundry_aware)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g9_reserve_boundry_aware_std = case_when(
+    str_trim(tolower(g9_reserve_boundry_aware)) %in% as.character(0:10) ~ g9_reserve_boundry_aware,
+    str_trim(tolower(g9_reserve_boundry_aware)) == "no_ma_reserve" ~ "Community does not have reserves",
+    str_detect(tolower(g9_reserve_boundry_aware), "tidak tahu|not answered") |
+      is.na(g9_reserve_boundry_aware) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g9_reserve_boundry_aware_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g9_reserve_boundry_aware_std)) %>%
+  count(g9_reserve_boundry_aware) %>%
+  arrange(desc(n))
+```
+
+
+
+```{r}
+# Count number of NA values 
+sum(is.na(merged_hhs$g9_ma_boundry_aware))
+
+# Unique values
+unique(merged_hhs$g9_ma_boundry_aware)
+
+# Standardize entries
+merged_hhs <- merged_hhs %>%
+  mutate(g9_ma_boundry_aware_std = case_when(
+    str_trim(tolower(g9_ma_boundry_aware)) %in% as.character(0:10) ~ g9_ma_boundry_aware,
+    
+    str_to_lower(g9_ma_boundry_aware) == "strongly disagree" ~ "0",
+    str_to_lower(g9_ma_boundry_aware) == "disagree" ~ "3",
+    str_to_lower(g9_ma_boundry_aware) == "neither" ~ "5",
+    str_to_lower(g9_ma_boundry_aware) == "agree" ~ "7",
+    str_to_lower(g9_ma_boundry_aware) == "strongly agree" ~ "10",
+    
+    str_to_lower(g9_ma_boundry_aware) %in% c("no reserve", "no managed access", "no_ma_reserve") ~ 
+      "Community does not have a managed area",
+    
+    str_detect(str_to_lower(g9_ma_boundry_aware), "na|not answered|tidak tahu") |
+      is.na(g9_ma_boundry_aware) ~ NA_character_,
+    
+    TRUE ~ NA_character_
+  ))
+
+# Unique values
+unique(merged_hhs$g9_ma_boundry_aware_std)
+
+# Check entries re-classified as NA
+merged_hhs %>%
+  filter(is.na(g9_ma_boundry_aware_std)) %>%
+  count(g9_ma_boundry_aware) %>%
+  arrange(desc(n))
+```
+
+
+
+
+```{r}
+#Keep one column version (remove _std columns)
+
+# Step 1: Identify all "_std" columns
+std_cols <- grep("_std$", colnames(merged_hhs), value = TRUE)
+
+# Step 2: For each "_std" column:
+for (std_col in std_cols) {
+  base_col <- sub("_std$", "", std_col)
+  
+  # Replace the base column with the _std version (if it exists)
+  if (base_col %in% colnames(merged_hhs)) {
+    merged_hhs[[base_col]] <- merged_hhs[[std_col]]
+  } else {
+    # If the base column doesn't exist, just rename the std_col to base_col
+    merged_hhs[[base_col]] <- merged_hhs[[std_col]]
+  }
+  
+  # Remove the original "_std" column
+  merged_hhs[[std_col]] <- NULL
+}
+```
 
 
 
 
 
 
+
+
+```{r}
+# Re-classify g10_enforcement_responsible
+unique(merged_hhs$g10_enforcement_responsible)
+
+unique(merged_hhs$g10_enforcement_responsible_community_surveilance)
+unique(merged_hhs$g10_enforcement_responsible_fmb)
+unique(merged_hhs$g10_enforcement_responsible_myself)
+unique(merged_hhs$g10_enforcement_responsible_national)
+unique(merged_hhs$g10_enforcement_responsible_no_enforcement)
+unique(merged_hhs$g10_enforcement_responsible_other)
+unique(merged_hhs$g10_enforcement_responsible_subnational)
+
+
+
+sum(is.na(merged_hhs$g10_enforcement_responsible_fmb))
+
+
+merged_hhs <- merged_hhs %>%
+  mutate(
+    g10_enf_resp_lower = tolower(trimws(g10_enforcement_responsible)),
+
+    g10_enforcement_responsible_community_surveilance = case_when(
+      !is.na(g10_enforcement_responsible_community_surveilance) ~ g10_enforcement_responsible_community_surveilance,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "\\bpokmaswas\\b") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_enforcement_responsible_fmb = case_when(
+      !is.na(g10_enforcement_responsible_fmb) ~ g10_enforcement_responsible_fmb,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "\\bfmb\\b") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_enforcement_responsible_myself = case_when(
+      !is.na(g10_enforcement_responsible_myself) ~ g10_enforcement_responsible_myself,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "\\bmyself\\b") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_enforcement_responsible_national = case_when(
+      !is.na(g10_enforcement_responsible_national) ~ g10_enforcement_responsible_national,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "\\bpemerintah pusat\\b|\\bnational\\b") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_enforcement_responsible_subnational = case_when(
+      !is.na(g10_enforcement_responsible_subnational) ~ g10_enforcement_responsible_subnational,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "\\bpemerintah daerah\\b|\\bsubnational\\b|local_gov") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_enforcement_responsible_no_enforcement = case_when(
+      !is.na(g10_enforcement_responsible_no_enforcement) ~ g10_enforcement_responsible_no_enforcement,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "tidak tahu|no_enforcement") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_enforcement_responsible_other = case_when(
+      !is.na(g10_enforcement_responsible_other) ~ g10_enforcement_responsible_other,
+      is.na(g10_enf_resp_lower) | g10_enf_resp_lower == "na" ~ NA_character_,
+      str_detect(g10_enf_resp_lower, "\\blainnya\\b|\\bother\\b") ~ "1",
+      TRUE ~ "0"
+    )
+  ) %>%
+  select(
+    -g10_enf_resp_lower,
+    -g10_enforcement_responsible
+  )
+```
+
+
+
+
+```{r}
+# Re-classify g10_fisheries_management_leader
+unique(merged_hhs$g10_fisheries_management_leader)
+
+unique(merged_hhs$g10_fisheries_management_leader_no_mgmt)
+unique(merged_hhs$g10_fisheries_management_leader_yes_female)
+unique(merged_hhs$g10_fisheries_management_leader_yes_male)
+unique(merged_hhs$g10_fisheries_management_leader_yes_nonbinary)
+
+
+sum(is.na(merged_hhs$g10_fisheries_management_leader_yes_female))
+
+merged_hhs <- merged_hhs %>%
+  mutate(
+    g10_leader_resp_lower = tolower(trimws(g10_fisheries_management_leader)),
+
+    g10_fisheries_management_leader_yes_female = case_when(
+      !is.na(g10_fisheries_management_leader_yes_female) ~ g10_fisheries_management_leader_yes_female,
+      is.na(g10_leader_resp_lower) | g10_leader_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap",
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_leader_resp_lower, "yes_female|c. ya \\(perempuan\\)|ya \\(perempuan\\)|yes_both|yes_male yes_female|a. ya \\(laki-laki den perempuan\\)") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_leader_yes_male = case_when(
+      !is.na(g10_fisheries_management_leader_yes_male) ~ g10_fisheries_management_leader_yes_male,
+      is.na(g10_leader_resp_lower) | g10_leader_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap",
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_leader_resp_lower, "yes_male|b. ya \\(laki-laki\\)|ya \\(laki-laki\\)|yes_both|yes_male yes_female|a. ya \\(laki-laki den perempuan\\)|yes_nonbinary yes_male") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_leader_yes_nonbinary = case_when(
+      !is.na(g10_fisheries_management_leader_yes_nonbinary) ~ g10_fisheries_management_leader_yes_nonbinary,
+      is.na(g10_leader_resp_lower) | g10_leader_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap",
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_leader_resp_lower, "yes_nonbinary") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_leader_no_mgmt = case_when(
+      !is.na(g10_fisheries_management_leader_no_mgmt) ~ g10_fisheries_management_leader_no_mgmt,
+      is.na(g10_leader_resp_lower) | g10_leader_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap",
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      g10_leader_resp_lower %in% c("no") ~ "1",
+      str_detect(g10_leader_resp_lower, "no_mgmt") ~ "1",
+      g10_leader_resp_lower %in% c("yes_female no", "yes_male no", "yes_nonbinary no") ~ "1",
+      TRUE ~ "0"
+    )
+  ) %>%
+  select(-g10_leader_resp_lower, -g10_fisheries_management_leader)
+
+
+```
+
+
+```{r}
+# Re-classify g10_fisheries_management_meeting
+unique(merged_hhs$g10_fisheries_management_meeting)
+
+unique(merged_hhs$g10_fisheries_management_meeting_no_meetings)
+unique(merged_hhs$g10_fisheries_management_meeting_no_mgmt)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_both_gender)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_female)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_male)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_nonbinary)
+
+sum(is.na(merged_hhs$g10_fisheries_management_meeting_no_mgmt))
+       
+merged_hhs <- merged_hhs %>%
+  mutate(
+    g10_meeting_resp_lower = tolower(trimws(g10_fisheries_management_meeting)),
+
+    g10_fisheries_management_meeting_yes_female = case_when(
+      !is.na(g10_fisheries_management_meeting_yes_female) ~ g10_fisheries_management_meeting_yes_female,
+      is.na(g10_meeting_resp_lower) | g10_meeting_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap", 
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_meeting_resp_lower, "yes_female|ya \\(perempuan\\)|c. ya \\(perempuan\\)") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_meeting_yes_male = case_when(
+      !is.na(g10_fisheries_management_meeting_yes_male) ~ g10_fisheries_management_meeting_yes_male,
+      is.na(g10_meeting_resp_lower) | g10_meeting_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap", 
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_meeting_resp_lower, "yes_male|ya \\(laki-laki\\)|b. ya \\(laki-laki\\)") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_meeting_yes_nonbinary = case_when(
+      !is.na(g10_fisheries_management_meeting_yes_nonbinary) ~ g10_fisheries_management_meeting_yes_nonbinary,
+      is.na(g10_meeting_resp_lower) | g10_meeting_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap", 
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_meeting_resp_lower, "yes_nonbinary") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_meeting_yes_both_gender = case_when(
+      !is.na(g10_fisheries_management_meeting_yes_both_gender) ~ g10_fisheries_management_meeting_yes_both_gender,
+      is.na(g10_meeting_resp_lower) | g10_meeting_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap", 
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_meeting_resp_lower, "yes_both_gender|yes_both|a. ya \\(laki-laki den perempuan\\)|laki-laki den perempuan") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_meeting_no_mgmt = case_when(
+      !is.na(g10_fisheries_management_meeting_no_mgmt) ~ g10_fisheries_management_meeting_no_mgmt,
+      is.na(g10_meeting_resp_lower) | g10_meeting_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap", 
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_meeting_resp_lower, "no_mgmt|\\bno\\b") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g10_fisheries_management_meeting_no_meetings = case_when(
+      !is.na(g10_fisheries_management_meeting_no_meetings) ~ g10_fisheries_management_meeting_no_meetings,
+      is.na(g10_meeting_resp_lower) | g10_meeting_resp_lower %in% c(
+        "na", "tidak", "d. tidak", "e. tidak tahu / tidak ikut kelompok paap", 
+        "tidak tahu / tidak ikut kelompok paap"
+      ) ~ NA_character_,
+      str_detect(g10_meeting_resp_lower, "no_meetings") ~ "1",
+      TRUE ~ "0"
+    )
+  ) %>%
+  select(-g10_meeting_resp_lower, -g10_fisheries_management_meeting)
+
+
+```
+
+
+
+
+
+
+```{r}
+# Re-classify g1_ma_r_mb
+unique(merged_hhs$g1_ma_r_mb)
+
+unique(merged_hhs$g1_ma_r_mb_customary_area)
+unique(merged_hhs$g1_ma_r_mb_management_area)
+unique(merged_hhs$g1_ma_r_mb_management_body)
+unique(merged_hhs$g1_ma_r_mb_marine_reserve)
+unique(merged_hhs$g1_ma_r_mb_none)
+
+
+sum(is.na(merged_hhs$g1_ma_r_mb_marine_reserve))
+
+merged_hhs <- merged_hhs %>%
+  mutate(
+    g1_ma_r_mb_lower = tolower(trimws(g1_ma_r_mb)),
+
+    g1_ma_r_mb_customary_area = case_when(
+      !is.na(g1_ma_r_mb_customary_area) ~ g1_ma_r_mb_customary_area,
+      is.na(g1_ma_r_mb_lower) | g1_ma_r_mb_lower %in% c("", "na") ~ NA_character_,
+      str_detect(g1_ma_r_mb_lower, "customary_area|hukum adat") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g1_ma_r_mb_management_area = case_when(
+      !is.na(g1_ma_r_mb_management_area) ~ g1_ma_r_mb_management_area,
+      is.na(g1_ma_r_mb_lower) | g1_ma_r_mb_lower %in% c("", "na") ~ NA_character_,
+      str_detect(g1_ma_r_mb_lower, "management_area|kawasan pengelolaan|kkpd|taman nasional|paap") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g1_ma_r_mb_management_body = case_when(
+      !is.na(g1_ma_r_mb_management_body) ~ g1_ma_r_mb_management_body,
+      is.na(g1_ma_r_mb_lower) | g1_ma_r_mb_lower %in% c("", "na") ~ NA_character_,
+      str_detect(g1_ma_r_mb_lower, "management_body") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g1_ma_r_mb_marine_reserve = case_when(
+      !is.na(g1_ma_r_mb_marine_reserve) ~ g1_ma_r_mb_marine_reserve,
+      is.na(g1_ma_r_mb_lower) | g1_ma_r_mb_lower %in% c("", "na") ~ NA_character_,
+      str_detect(g1_ma_r_mb_lower, "marine_reserve|daerah perlindungan laut|kla|zona inti|blok perlindungan") ~ "1",
+      TRUE ~ "0"
+    ),
+
+    g1_ma_r_mb_none = case_when(
+      !is.na(g1_ma_r_mb_none) ~ g1_ma_r_mb_none,
+      is.na(g1_ma_r_mb_lower) | g1_ma_r_mb_lower %in% c("", "na") ~ NA_character_,
+      str_detect(g1_ma_r_mb_lower, "none|tidak ada") ~ "1",
+      TRUE ~ "0"
+    )
+  ) %>%
+  select(-g1_ma_r_mb_lower, -g1_ma_r_mb)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+unique(merged_hhs$g1_fmb_existing)
+
+unique(merged_hhs$g1_hh_status)
+
+unique(merged_hhs$g1_ma_r_important)
+
+unique(merged_hhs$g1_ma_r_mb) #Removed
+unique(merged_hhs$g1_ma_r_mb_customary_area)
+unique(merged_hhs$g1_ma_r_mb_management_area)
+unique(merged_hhs$g1_ma_r_mb_management_body)
+unique(merged_hhs$g1_ma_r_mb_marine_reserve)
+unique(merged_hhs$g1_ma_r_mb_none)
+
+unique(merged_hhs$g10_attend_meeting_female)
+unique(merged_hhs$g10_attend_meeting_male)
+unique(merged_hhs$g10_attend_meeting_nonbinary)
+
+unique(merged_hhs$g10_benefits_comply_knowledge_fishing_permission)
+unique(merged_hhs$g10_benefits_comply_knowledge_gear)
+unique(merged_hhs$g10_benefits_comply_knowledge_licensing)
+unique(merged_hhs$g10_benefits_comply_knowledge_min_fish_size)
+unique(merged_hhs$g10_benefits_comply_knowledge_reserve_restrict)
+unique(merged_hhs$g10_benefits_comply_knowledge_other)
+unique(merged_hhs$g10_benefits_comply_knowledge_other_specify) #Specify
+
+unique(merged_hhs$g10_benefits_comply_agreement_fishing_permission)
+unique(merged_hhs$g10_benefits_comply_agreement_gear)
+unique(merged_hhs$g10_benefits_comply_agreement_licensing)
+unique(merged_hhs$g10_benefits_comply_agreement_min_fish_size)
+unique(merged_hhs$g10_benefits_comply_agreement_no_fishing)
+unique(merged_hhs$g10_benefits_comply_agreement_other)
+unique(merged_hhs$g10_benefits_comply_agreement_other_specify) #Specify
+
+
+unique(merged_hhs$g10_comply_rules_fishing_permission)
+unique(merged_hhs$g10_comply_rules_gear)
+unique(merged_hhs$g10_comply_rules_licensing)
+unique(merged_hhs$g10_comply_rules_min_fish)
+unique(merged_hhs$g10_comply_rules_reserve_restrict)
+unique(merged_hhs$g10_comply_rules_other)
+unique(merged_hhs$g10_comply_rules_other_specify) #Specify
+
+unique(merged_hhs$g10_encourage_regulations)
+
+unique(merged_hhs$g10_enforcement_regulation_fishers_caught)
+unique(merged_hhs$g10_enforcement_regulation_fishers_gear_not_permitted)
+unique(merged_hhs$g10_enforcement_regulation_fishers_ma_area)
+unique(merged_hhs$g10_enforcement_regulation_fishers_reserves)
+unique(merged_hhs$g10_enforcement_regulation_fishers_reserves_caught)
+unique(merged_hhs$g10_enforcement_regulation_fishers_violate_fish_size)
+unique(merged_hhs$g10_enforcement_regulation_fishers_violate_fishing_rules)
+
+unique(merged_hhs$g10_enforcement_responsible) #Removed
+unique(merged_hhs$g10_enforcement_responsible_community_surveilance)
+unique(merged_hhs$g10_enforcement_responsible_fmb)
+unique(merged_hhs$g10_enforcement_responsible_myself)
+unique(merged_hhs$g10_enforcement_responsible_na)
+unique(merged_hhs$g10_enforcement_responsible_national)
+unique(merged_hhs$g10_enforcement_responsible_no_enforcement)
+unique(merged_hhs$g10_enforcement_responsible_subnational)
+unique(merged_hhs$g10_enforcement_responsible_other)
+unique(merged_hhs$g10_enforcement_responsible_other_specify) #Specify
+
+
+unique(merged_hhs$g10_fisheries_management_leader) #Removed
+unique(merged_hhs$g10_fisheries_management_leader_no)
+unique(merged_hhs$g10_fisheries_management_leader_no_mgmt)
+unique(merged_hhs$g10_fisheries_management_leader_yes_female)
+unique(merged_hhs$g10_fisheries_management_leader_yes_male)
+unique(merged_hhs$g10_fisheries_management_leader_yes_nonbinary)
+
+unique(merged_hhs$g10_fisheries_management_meeting) #Removed
+unique(merged_hhs$g10_fisheries_management_meeting_no)
+unique(merged_hhs$g10_fisheries_management_meeting_no_meetings)
+unique(merged_hhs$g10_fisheries_management_meeting_no_mgmt)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_both_gender)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_female)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_male)
+unique(merged_hhs$g10_fisheries_management_meeting_yes_nonbinary)
+
+
+
+
+```
 
 
 
