@@ -1,0 +1,821 @@
+---
+title: "honduras_fishers_farmers"
+author: "Mariano Viz"
+date: "2025-07-04"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false      
+      smooth_scroll: true
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, collapse = TRUE, comment = "#>", fig.align = 'center')
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(effsize)
+library(jsonlite)
+library(readxl)
+library(data.world)
+library(lmtest)
+library(sandwich)
+library(broom)
+library(rstatix)
+library(gridExtra)
+library(stringr)
+library(ggstats)
+library(patchwork)
+library(scales)
+library(forcats)
+library(readr)
+library(tidyr)
+library(cowplot)
+library(forcats)
+library(grid)
+library(kableExtra)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Getting merged_hhs dataset: Basic Script + Correction for kobo_4 col names in Bahasa
+
+
+# Load Required Libraries
+library(httr)
+library(readxl)
+library(readr)
+library(dplyr)
+library(purrr)
+library(here)
+
+# Step 1: Define Helper Functions
+
+## Function to download and read Excel files
+download_and_read_excel <- function(url) {
+  temp_file <- tempfile(fileext = ".xlsx")
+  GET(url, write_disk(temp_file, overwrite = TRUE))
+  data <- read_excel(temp_file)
+  unlink(temp_file)
+  return(data)
+}
+
+## Function to process datasets using metadata
+process_dataset <- function(dataset, metadata) {
+  column_map <- metadata %>%
+    tidyr::separate_rows(`Original Column Name`, sep = "; ") %>%
+    select(`Original Column Name`, `Standardized Column Name`) %>%
+    distinct() %>%
+    group_by(`Original Column Name`) %>%
+    slice(1) %>%
+    ungroup() %>%
+    filter(`Original Column Name` %in% names(dataset))
+  
+  new_colnames <- names(dataset) %>%
+    purrr::map_chr(~ {
+      if (.x %in% column_map$`Original Column Name`) {
+        column_map$`Standardized Column Name`[column_map$`Original Column Name` == .x]
+      } else {
+        NA_character_
+      }
+    })
+  
+  names(dataset) <- new_colnames
+  dataset <- dataset %>%
+    select(any_of(metadata$`Standardized Column Name`))
+  return(dataset)
+}
+
+## Function to remove note columns (starting with "g99")
+remove_g99_columns <- function(dataset) {
+  dataset %>% select(-starts_with("g99"))
+}
+
+## Function to standardize column types across datasets
+standardize_column_types <- function(datasets) {
+  all_columns <- datasets %>%
+    purrr::map(names) %>%
+    purrr::reduce(union)
+  
+  datasets <- datasets %>%
+    purrr::map(~ {
+      dataset <- .x
+      missing_columns <- setdiff(all_columns, names(dataset))
+      dataset[missing_columns] <- NA
+      dataset <- dataset %>%
+        mutate(across(everything(), as.character))
+      return(dataset)
+    })
+  return(datasets)
+}
+
+# Step 2: Define URLs for Data Sources
+urls <- list(
+  fastfield = "https://query.data.world/s/w67hchmwgk4xyshbmb4xkxitsamtag?dws=00000",
+  kobo_1 = "https://query.data.world/s/2ltshiqf5ablwa6pw4uijvzgm6j37j?dws=00000",
+  kobo_2 = "https://query.data.world/s/hczi25yxfpweveumkatcfobp4qbik5?dws=00000",
+  kobo_3 = "https://query.data.world/s/hgss74tml5z4f3gdi4h2ztkw4wfcx2?dws=00000",
+  kobo_4 = "https://query.data.world/s/v7amp6zyj7rxyoflfstnwpuvgse3mr?dws=00000",
+  kobo_5 = "https://query.data.world/s/wejaidwccqs2wqtg7n5ksnxmfirwhn?dws=00000"
+)
+
+metadata_url <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQc0btEwxARDVBC0Ny6ZCRlzoIjQ7txvbFoU-xlQOI97CP2tGNr4hPOskVGhr74dhCYQkBmxSm9zFkn/pub?output=csv"
+
+
+#Addressing problem with kobo_4 having col names in bahasa
+# Read both the downloaded and local versions of kobo_4
+kobo_4_downloaded <- download_and_read_excel(urls$kobo_4)
+kobo_4_local <- read_excel(here("data", "kobo", "hhs_kobo_mod_4.xlsx"))
+# Replace downloaded data's column names with those from the local file
+names(kobo_4_downloaded) <- names(kobo_4_local)
+
+
+
+# Step 3: Download Data
+datasets <- list(
+  fastfield = read.csv(urls$fastfield, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+  kobo_1 = download_and_read_excel(urls$kobo_1),
+  kobo_2 = download_and_read_excel(urls$kobo_2),
+  kobo_3 = download_and_read_excel(urls$kobo_3),
+  kobo_4 = kobo_4_downloaded,
+  kobo_5 = download_and_read_excel(urls$kobo_5)
+)
+
+metadata <- read_csv(metadata_url)
+
+# Step 4: Process and Clean Datasets
+processed_datasets <- purrr::map(datasets, process_dataset, metadata = metadata)
+cleaned_datasets <- purrr::map(processed_datasets, remove_g99_columns)
+standardized_datasets <- standardize_column_types(cleaned_datasets)
+
+# Step 5: Merge All Datasets
+merged_hhs <- purrr::reduce(standardized_datasets, full_join, by = NULL)
+
+# Clear all objects except merged_hhs
+rm(list = setdiff(ls(), "merged_hhs"))
+
+# The merged_hhs dataset is now ready for use.
+
+# Adding year
+
+# Load required libraries
+library(dplyr)
+library(lubridate)
+
+# Assuming the merged dataset is stored in a variable called merged_hhs
+# Update the 'year' column using 'g0_year' and 'g0_submission_time'
+merged_hhs <- merged_hhs %>%
+  mutate(
+    year = ifelse(is.na(g0_year), 
+                  year(ymd_hms(g0_submission_time)), 
+                  g0_year)
+  )
+
+
+#unique(merged_hhs$year)
+
+
+
+# Merging location information (Province, Municipality, and Community)
+
+# Load required libraries
+library(dplyr)
+library(readr)
+library(here)
+
+# Read metadata for location IDs
+level_1 <- read_csv(here("data", "location_ids", "level1.csv")) # Province
+level_2 <- read_csv(here("data", "location_ids", "level2.csv")) # Municipality
+level_4 <- read_csv(here("data", "location_ids", "level4.csv")) # Community
+
+# Replace coded entries with corresponding labels
+# Province
+merged_hhs$g1_province <- as.character(merged_hhs$g1_province)
+merged_hhs$g1_province <- ifelse(
+  merged_hhs$g1_province %in% level_1$name, 
+  level_1$label[match(merged_hhs$g1_province, level_1$name)], 
+  merged_hhs$g1_province
+)
+
+# Municipality
+merged_hhs$g1_municipality <- as.character(merged_hhs$g1_municipality)
+merged_hhs$g1_municipality <- ifelse(
+  merged_hhs$g1_municipality %in% level_2$name, 
+  level_2$label[match(merged_hhs$g1_municipality, level_2$name)], 
+  merged_hhs$g1_municipality
+)
+
+# Community
+merged_hhs$g1_community <- as.character(merged_hhs$g1_community)
+merged_hhs$g1_community <- ifelse(
+  merged_hhs$g1_community %in% level_4$name, 
+  level_4$label[match(merged_hhs$g1_community, level_4$name)], 
+  merged_hhs$g1_community
+)
+
+# Generate final columns for merged dataset
+merged_hhs <- merged_hhs %>%
+  mutate(
+    merged_hhs_community = g1_community,
+    merged_hhs_province = ifelse(is.na(g1_province), g1_subnational, g1_province),
+    merged_hhs_municipality = ifelse(is.na(g1_municipality), g1_local, g1_municipality)
+  )
+
+```
+
+# Summary
+
+This short analysis explores the overlap between fishing and farming among surveyed households in Honduras.
+We start by quickly answering the core question for the entire dataset across all provinces and years: What percentage of fishers also engage in farming?
+We then outline the availability of household survey data by province and year.
+Following that, we examine the composition of household income sources at the national level, as well as disaggregated by province and by year.
+Finally, we analyze the extent to which fishing households also engage in farming, presenting results through a series of pie charts for the full sample, by province, and by year.
+
+The raw dataset used for this analysis can be accessed [here](https://drive.google.com/file/d/1NFUDJnBOy5SF3bMETc5SutYIV7u1fUwL/view?usp=sharing).
+
+------------------------------------------------------------------------
+
+```{r}
+merged_hhs_hon <- merged_hhs %>% 
+  filter(g1_country == "HND")
+
+
+# Create a vector of the income percentage columns
+income_cols <- c(
+  "g4_hh_average_income_source_a_income_farming",
+  "g4_hh_average_income_source_b_income_harvesting",
+  "g4_hh_average_income_source_c_income_fishing_artisanal",
+  "g4_hh_average_income_source_d_income_fishing_aquaculture",
+  "g4_hh_average_income_source_e_income_buying_trading",
+  "g4_hh_average_income_source_f_income_processing",
+  "g4_hh_average_income_source_g_income_extraction",
+  "g4_hh_average_income_source_h_income_tourism",
+  "g4_hh_average_income_source_i_income_other_wage",
+  "g4_hh_average_income_source_j_income_industrial",
+  "g4_hh_average_income_source_k_income_other"
+)
+
+# Create a new dataframe with a total income contribution column
+merged_hhs_hon_with_sum <- merged_hhs_hon %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE))
+
+
+sum(merged_hhs_hon_with_sum$total_income_pct != 100) #Great: just 60 non 100 observations!
+
+merged_hhs_hon_clean <- merged_hhs_hon_with_sum %>%
+  filter(total_income_pct == 100)
+
+# Keep and rename the specified columns
+merged_hhs_hon_source <- merged_hhs_hon_clean %>%
+  select(
+    country = g1_country,
+    year,
+    province = merged_hhs_province,
+    municipality = merged_hhs_municipality,
+    community = merged_hhs_community,
+    all_of(income_cols)
+  )
+
+# Add fisher and farmer flags
+df_fisher_farming <- merged_hhs_hon_source %>%
+  mutate(
+    is_fisher = g4_hh_average_income_source_c_income_fishing_artisanal > 0 |
+                g4_hh_average_income_source_j_income_industrial > 0,
+    is_farmer = g4_hh_average_income_source_a_income_farming > 0
+  )
+
+# Total observations in the dataset
+total_obs <- nrow(df_fisher_farming)
+
+# Count total fishers and fishers who also farm
+total_fishers <- sum(df_fisher_farming$is_fisher, na.rm = TRUE)
+fishers_also_farmers <- sum(df_fisher_farming$is_fisher & df_fisher_farming$is_farmer, na.rm = TRUE)
+
+# Percentages
+fisher_share_of_sample <- total_fishers / total_obs * 100
+farmers_among_fishers_pct <- fishers_also_farmers / total_fishers * 100
+
+
+# write.csv(merged_hhs_hon_source, "hhs_honduras_clean.csv", row.names = FALSE)
+
+total_fishers
+fishers_also_farmers
+round(farmers_among_fishers_pct, 1)
+```
+
+# Do Honduras Fishers Also Farm?
+
+[**Short answer**]{.underline}**:** Out of the 2,738 households surveyed in Honduras from 2019 to 2024, 1,722 were identified as fishers, representing 63% of the total sample.
+Among them, 650 households also reported income from farming activities—this means that **38% of fishers also farm**.
+
+**Disaggregated Findings**
+
+There is substantial variation across provinces.
+For example, in Colón and Cortés, the proportion of fishers who also farm is around 40%, while in Islas de la Bahía, very few fishers report farming income.
+In contrast, almost all fishers in Atlántida also farm (*For details, see section* **Fishing and Farming Households** → *Provincial Breakdown).*
+
+It’s important to note that the year-level disaggregation of results should be interpreted with caution.
+As shown in the summary table, different provinces were sampled in different years, making it difficult to distinguish year effects from geographic differences.
+The observed year-to-year patterns largely reflect changes in where data was collected, rather than temporal shifts in household activity (*For details, see section* **Fishing and Farming Households** → *Yearly Breakdown).*
+
+**Details and Assumptions**
+
+-   This analysis is based on responses to a survey question about the share of household income coming from different sources.
+    Because of this, the data likely underestimates fishing or farming done solely for household consumption, as it only captures income-generating activities.
+
+-   A household was classified as engaged in fishing if it reported any income from artisanal or industrial fishing.
+    Similarly, a household was classified as engaged in farming if it reported income from agriculture or livestock activities.
+    These classifications are intentionally inclusive: even a small income share from one of these activities was sufficient for a household to be included.
+
+------------------------------------------------------------------------
+
+# Available Data Overview
+
+```{r}
+merged_hhs_hon_source %>%
+  count(province, year) %>%
+  pivot_wider(
+    names_from = year,
+    values_from = n,
+    values_fill = 0
+  ) %>%
+  rename(Province = province) %>%
+  select(Province, `2019`, `2021`, `2023`, `2024`) %>%
+  kable("html", caption = "Number of Observations per Province per Year") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = TRUE,
+    position = "center"
+  ) %>%
+  column_spec(1, width = "160px")  # Only the first column wider
+```
+
+# Income Composition by Source
+
+## National Overview
+
+```{r display-plots1, fig.width=10, fig.height=6, dpi=300, results='asis'}
+# Recode labels (example, adjust as needed)
+income_labels <- c(
+  "Farming",
+  "Forest Harvesting",
+  "Artisanal Fishing",
+  "Aquaculture",
+  "Fish Buying/Trading",
+  "Fish Processing",
+  "Marine Extraction",
+  "Marine Tourism",
+  "Other Wage Labor",
+  "Industrial Fishing",
+  "Other"
+)
+
+# Create the long-format dataset and summarize income proportions
+df_income_long <- merged_hhs_hon_source %>%
+  select(all_of(income_cols)) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  filter(if_any(everything(), ~ !is.na(.))) %>%  # Keep rows with at least one value
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE)) %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop)) %>%
+  mutate(
+    source = factor(source, levels = source),
+    label = paste0(source, " (", scales::percent(prop, accuracy = 1), ")")
+  )
+
+# Define colors
+source_colors <- setNames(
+  RColorBrewer::brewer.pal(n = nrow(df_income_long), name = "Paired"),
+  df_income_long$source
+)
+
+# Define the color palette using RColorBrewer (or keep your custom colors)
+source_colors <- setNames(
+  RColorBrewer::brewer.pal(n = nrow(df_income_long), name = "Paired"),
+  df_income_long$source
+)
+
+# Swap the colors
+temp_color <- source_colors["Other"]
+source_colors["Other"] <- source_colors["Industrial Fishing"]
+source_colors["Industrial Fishing"] <- temp_color
+
+temp_color2 <- source_colors["Other Wage Labor"]
+source_colors["Other Wage Labor"] <- source_colors["Forest Harvesting"]
+source_colors["Forest Harvesting"] <- temp_color2
+
+# Create the plot
+ggplot(df_income_long, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(
+    values = source_colors,
+    labels = df_income_long$label
+  ) +
+  labs(
+    title = "Total Income Share by Source",
+    x = "Source",
+    y = "Proportion of Reported Income Sources",
+    fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+```
+
+## Provincial Breakdown
+
+```{r display-plots2, fig.width=10, fig.height=6, dpi=300, results='asis'}
+# Create long-format dataset with province included
+df_income_long_province <- merged_hhs_hon_source %>%
+  select(province, all_of(income_cols)) %>%
+  mutate(across(all_of(income_cols), as.numeric)) %>%
+  filter(if_any(all_of(income_cols), ~ !is.na(.))) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(province, source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(province, desc(prop)) %>%
+  mutate(source = factor(source, levels = income_labels))  # to keep source order consistent
+
+province_sample_sizes <- merged_hhs_hon_source %>%
+  count(province, name = "n")
+
+df_income_long_province <- df_income_long_province %>%
+  left_join(province_sample_sizes, by = "province") %>%
+  mutate(province_label = paste0(province, " (n = ", n, ")"))
+
+# Ensure factor levels match
+df_income_long_province <- df_income_long_province %>%
+  mutate(source = factor(source, levels = income_labels))
+
+source_colors <- c(
+  "Artisanal Fishing"    = "#A6CEE3", 
+  "Other"                = "#FDBF6F",  
+  "Farming"              = "#B2DF8A", 
+  "Other Wage Labor"     = "#CAB2D6", 
+  "Fish Buying/Trading"  = "#FB9A99", 
+  "Fish Processing"      = "#E31A1C", 
+  "Industrial Fishing"   = "#1F78B4", 
+  "Aquaculture"          = "#FF7F00",  
+  "Marine Tourism"       = "#6A3D9A",  
+  "Forest Harvesting"    = "#33A02C", 
+  "Marine Extraction"    = "#FFFF99"  
+)
+
+# Create the plot
+ggplot(df_income_long_province, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            vjust = -0.3, size = 3, color = "black") +
+  facet_wrap(~ province_label) +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors)+
+  labs(
+    title = "Income Share by Source and Province",
+    x = "Income Source",
+    y = "Proportion of Total Reported Income",
+    fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)
+  )
+```
+
+## Yearly Breakdown
+
+```{r display-plots3, fig.width=10, fig.height=6, dpi=300, results='asis'}
+# Create long-format dataset with year included
+df_income_long_year <- merged_hhs_hon_source %>%
+  select(year, all_of(income_cols)) %>%
+  mutate(across(all_of(income_cols), as.numeric)) %>%
+  filter(if_any(all_of(income_cols), ~ !is.na(.))) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(year, desc(prop)) %>%
+  mutate(source = factor(source, levels = income_labels))
+
+# Get sample size by year
+year_sample_sizes <- merged_hhs_hon_source %>%
+  count(year, name = "n")
+
+# Add year (n = ...) label
+df_income_long_year <- df_income_long_year %>%
+  left_join(year_sample_sizes, by = "year") %>%
+  mutate(year_label = paste0("Year ", year, " (n = ", n, ")"))
+
+# Ensure factor levels match again
+df_income_long_year <- df_income_long_year %>%
+  mutate(source = factor(source, levels = income_labels))
+
+# Define consistent source colors manually
+source_colors <- c(
+  "Artisanal Fishing"    = "#A6CEE3", 
+  "Other"                = "#FDBF6F",  
+  "Farming"              = "#B2DF8A", 
+  "Other Wage Labor"     = "#CAB2D6", 
+  "Fish Buying/Trading"  = "#FB9A99", 
+  "Fish Processing"      = "#E31A1C", 
+  "Industrial Fishing"   = "#1F78B4", 
+  "Aquaculture"          = "#FF7F00",  
+  "Marine Tourism"       = "#6A3D9A",  
+  "Forest Harvesting"    = "#33A02C", 
+  "Marine Extraction"    = "#FFFF99"  
+)
+
+# Create the plot faceted by year
+ggplot(df_income_long_year, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            vjust = -0.3, size = 3, color = "black") +
+  facet_wrap(~ year_label) +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  labs(
+    title = "Income Share by Source and Year",
+    x = "Income Source",
+    y = "Proportion of Total Reported Income",
+    fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold"),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    strip.text = element_text(face = "bold"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)
+  )
+```
+
+# Fishing and Farming Households
+
+## National Overview
+
+```{r display-plots4, fig.width=10, fig.height=6, dpi=300, results='asis'}
+# Define is_fisher and is_farmer up front
+df_national <- merged_hhs_hon_source %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# --- WHOLE POPULATION PIE ---
+df_full <- df_national %>%
+  mutate(
+    group = if_else(is_fisher, "Fishers", "Non-Fishers")
+  ) %>%
+  count(group) %>%
+  mutate(
+    prop = n / sum(n),
+    label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+  )
+
+n_total <- sum(df_full$n)
+
+pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("Whole Population in Honduras (n = ", n_total, ")")) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+    legend.position = "none"
+  )
+
+# --- FISHING POPULATION PIE ---
+df_fishers <- df_national %>%
+  filter(is_fisher) %>%
+  mutate(
+    group = if_else(is_farmer, "Fishers who also farm", "Fishers only")
+  ) %>%
+  count(group) %>%
+  mutate(
+    prop = n / sum(n),
+    label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+  )
+
+n_fishers <- sum(df_fishers$n)
+
+pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Population (n = ", n_fishers, ")")) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 11),
+    legend.position = "none"
+  )
+
+# --- Combine and display ---
+ggdraw() +
+  draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +         
+  draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+```
+
+## Provincial Breakdown
+
+```{r display-plots5, fig.width=10, fig.height=6, dpi=300, results='asis'}
+
+# List of provinces
+provinces <- unique(na.omit(merged_hhs_hon_source$province))
+
+# Loop through each province and display plot
+for (prov in provinces) {
+  
+  df_prov <- merged_hhs_hon_source %>%
+    filter(province == prov) %>%
+    mutate(
+      is_fisher = if_else(
+        coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+        coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+        TRUE, FALSE, missing = FALSE
+      ),
+      is_farmer = if_else(
+        coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+        TRUE, FALSE, missing = FALSE
+      )
+    )
+  
+  ## --- WHOLE POPULATION PIE ---
+  df_full <- df_prov %>%
+    mutate(
+      group = if_else(is_fisher, "Fishers", "Non-Fishers")
+    ) %>%
+    count(group) %>%
+    mutate(
+      prop = n / sum(n),
+      label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+    )
+
+  n_total <- sum(df_full$n)
+
+  pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+    scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+    labs(title = paste0("Whole Population in ", prov, " (n = ", n_total, ")")) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      legend.position = "none"
+    )
+  
+  ## --- FISHERS ONLY PIE ---
+  df_fishers <- df_prov %>%
+    filter(is_fisher) %>%
+    mutate(
+      group = if_else(is_farmer, "Fishers who also farm", "Fishers only")
+    ) %>%
+    count(group) %>%
+    mutate(
+      prop = n / sum(n),
+      label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+    )
+
+  n_fishers <- sum(df_fishers$n)
+
+  pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 4) +
+    scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+    labs(title = paste0("Fishing Population (n = ", n_fishers, ")")) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 11),
+      legend.position = "none"
+    )
+
+  # Combine and display
+  final_plot <- cowplot::ggdraw() +
+    draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +
+    draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+  print(final_plot)
+}
+```
+
+## Yearly Breakdown
+
+```{r display-plots6, fig.width=10, fig.height=6, dpi=300, results='asis'}
+# List of years
+years <- unique(na.omit(merged_hhs_hon_source$year))
+
+# Loop through each year and display plot
+for (yr in years) {
+  
+  df_year <- merged_hhs_hon_source %>%
+    filter(year == yr) %>%
+    mutate(
+      is_fisher = if_else(
+        coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+        coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+        TRUE, FALSE, missing = FALSE
+      ),
+      is_farmer = if_else(
+        coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+        TRUE, FALSE, missing = FALSE
+      )
+    )
+  
+  # --- WHOLE POPULATION PIE ---
+  df_full <- df_year %>%
+    mutate(
+      group = if_else(is_fisher, "Fishers", "Non-Fishers")
+    ) %>%
+    count(group) %>%
+    mutate(
+      prop = n / sum(n),
+      label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+    )
+  
+  n_total <- sum(df_full$n)
+  
+  pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+    scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+    labs(title = paste0("Whole Population in ", yr, " (n = ", n_total, ")")) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+      legend.position = "none"
+    )
+  
+  # --- FISHING POPULATION PIE ---
+  df_fishers <- df_year %>%
+    filter(is_fisher) %>%
+    mutate(
+      group = if_else(is_farmer, "Fishers who also farm", "Fishers only")
+    ) %>%
+    count(group) %>%
+    mutate(
+      prop = n / sum(n),
+      label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+    )
+  
+  n_fishers <- sum(df_fishers$n)
+  
+  pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+    geom_col(width = 1, color = "white") +
+    coord_polar(theta = "y") +
+    geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 4) +
+    scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+    labs(title = paste0("Fishing Population (n = ", n_fishers, ")")) +
+    theme_void() +
+    theme(
+      plot.title = element_text(hjust = 0.5, face = "bold", size = 11),
+      legend.position = "none"
+    )
+  
+  # Combine and display
+  final_plot <- ggdraw() +
+    draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +
+    draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+  
+  print(final_plot)
+}
+```
