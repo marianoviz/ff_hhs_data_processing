@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/1327539/2cf609e3581d4d25bcbfcaa539a5b8b9
+bundleId: https://api.rpubs.com/api/v1/document/1327539/2cf609e3581d4d25bcbfcaa539a5b8b9
+url: http://rpubs.com/marianoviz/1327539
+version: 1

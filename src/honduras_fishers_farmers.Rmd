@@ -1,5 +1,5 @@
 ---
-title: "honduras_fishers_farmers"
+title: "Fishing and Farming Among Households in Honduras"
 author: "Mariano Viz"
 date: "2025-07-04"
 output:
@@ -237,7 +237,7 @@ We then outline the availability of household survey data by province and year.
 Following that, we examine the composition of household income sources at the national level, as well as disaggregated by province and by year.
 Finally, we analyze the extent to which fishing households also engage in farming, presenting results through a series of pie charts for the full sample, by province, and by year.
 
-The raw dataset used for this analysis can be accessed [here](https://drive.google.com/file/d/1NFUDJnBOy5SF3bMETc5SutYIV7u1fUwL/view?usp=sharing).
+The raw dataset used for this analysis can be accessed [here](https://raw.githubusercontent.com/marianoviz/ff_hhs_data_processing/main/src/hhs_honduras_clean.csv).
 
 ------------------------------------------------------------------------
 
@@ -315,15 +315,19 @@ round(farmers_among_fishers_pct, 1)
 [**Short answer**]{.underline}**:** Out of the 2,738 households surveyed in Honduras from 2019 to 2024, 1,722 were identified as fishers, representing 63% of the total sample.
 Among them, 650 households also reported income from farming activities—this means that **38% of fishers also farm**.
 
+<br>
+
 **Disaggregated Findings**
 
 There is substantial variation across provinces.
-For example, in Colón and Cortés, the proportion of fishers who also farm is around 40%, while in Islas de la Bahía, very few fishers report farming income.
-In contrast, almost all fishers in Atlántida also farm (*For details, see section* **Fishing and Farming Households** → *Provincial Breakdown).*
+In Colón and Cortés, around 40% of fishers also report income from farming.
+In Atlántida, the figure is lower at 27%, while in Islas de la Bahía, very few fishers report any farming income (*For details, see section 'Fishing and Farming Households' → 'Provincial Breakdown').*
 
 It’s important to note that the year-level disaggregation of results should be interpreted with caution.
-As shown in the summary table, different provinces were sampled in different years, making it difficult to distinguish year effects from geographic differences.
-The observed year-to-year patterns largely reflect changes in where data was collected, rather than temporal shifts in household activity (*For details, see section* **Fishing and Farming Households** → *Yearly Breakdown).*
+As shown in the summary table below, different provinces were sampled in different years, making it difficult to distinguish year effects from geographic differences.
+The observed year-to-year patterns largely reflect changes in where data was collected, rather than temporal shifts in household activity (*For details, see section 'Fishing and Farming Households' → 'Yearly Breakdown').*
+
+<br>
 
 **Details and Assumptions**
 
@@ -331,7 +335,7 @@ The observed year-to-year patterns largely reflect changes in where data was col
     Because of this, the data likely underestimates fishing or farming done solely for household consumption, as it only captures income-generating activities.
 
 -   A household was classified as engaged in fishing if it reported any income from artisanal or industrial fishing.
-    Similarly, a household was classified as engaged in farming if it reported income from agriculture or livestock activities.
+    Similarly, a household was classified as engaged in farming if it reported income from farming activities.
     These classifications are intentionally inclusive: even a small income share from one of these activities was sufficient for a household to be included.
 
 ------------------------------------------------------------------------
@@ -356,6 +360,8 @@ merged_hhs_hon_source %>%
   ) %>%
   column_spec(1, width = "160px")  # Only the first column wider
 ```
+
+------------------------------------------------------------------------
 
 # Income Composition by Source
 
@@ -575,6 +581,8 @@ ggplot(df_income_long_year, aes(x = source, y = prop, fill = source)) +
     panel.border = element_rect(color = "black", fill = NA, linewidth = 0.8)
   )
 ```
+
+------------------------------------------------------------------------
 
 # Fishing and Farming Households
 
