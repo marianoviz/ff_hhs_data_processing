@@ -1,0 +1,2157 @@
+---
+title: "Social Measures in Honduras: Data Insights and Limitations"
+author: "Mariano Viz"
+date: "2025-07-08"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false      
+      smooth_scroll: true
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, collapse = TRUE, comment = "#>", fig.align = 'center')
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(effsize)
+library(jsonlite)
+library(readxl)
+library(data.world)
+library(lmtest)
+library(sandwich)
+library(broom)
+library(rstatix)
+library(gridExtra)
+library(stringr)
+library(ggstats)
+library(patchwork)
+library(scales)
+library(forcats)
+library(readr)
+library(tidyr)
+library(cowplot)
+library(forcats)
+library(grid)
+library(kableExtra)
+library(stringdist)
+library(lubridate)
+```
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Getting merged_hhs dataset: Basic Script + Correction for kobo_4 col names in Bahasa
+
+
+# Load Required Libraries
+library(httr)
+library(readxl)
+library(readr)
+library(dplyr)
+library(purrr)
+library(here)
+
+# Step 1: Define Helper Functions
+
+## Function to download and read Excel files
+download_and_read_excel <- function(url) {
+  temp_file <- tempfile(fileext = ".xlsx")
+  GET(url, write_disk(temp_file, overwrite = TRUE))
+  data <- read_excel(temp_file)
+  unlink(temp_file)
+  return(data)
+}
+
+## Function to process datasets using metadata
+process_dataset <- function(dataset, metadata) {
+  column_map <- metadata %>%
+    tidyr::separate_rows(`Original Column Name`, sep = "; ") %>%
+    select(`Original Column Name`, `Standardized Column Name`) %>%
+    distinct() %>%
+    group_by(`Original Column Name`) %>%
+    slice(1) %>%
+    ungroup() %>%
+    filter(`Original Column Name` %in% names(dataset))
+  
+  new_colnames <- names(dataset) %>%
+    purrr::map_chr(~ {
+      if (.x %in% column_map$`Original Column Name`) {
+        column_map$`Standardized Column Name`[column_map$`Original Column Name` == .x]
+      } else {
+        NA_character_
+      }
+    })
+  
+  names(dataset) <- new_colnames
+  dataset <- dataset %>%
+    select(any_of(metadata$`Standardized Column Name`))
+  return(dataset)
+}
+
+## Function to remove note columns (starting with "g99")
+remove_g99_columns <- function(dataset) {
+  dataset %>% select(-starts_with("g99"))
+}
+
+## Function to standardize column types across datasets
+standardize_column_types <- function(datasets) {
+  all_columns <- datasets %>%
+    purrr::map(names) %>%
+    purrr::reduce(union)
+  
+  datasets <- datasets %>%
+    purrr::map(~ {
+      dataset <- .x
+      missing_columns <- setdiff(all_columns, names(dataset))
+      dataset[missing_columns] <- NA
+      dataset <- dataset %>%
+        mutate(across(everything(), as.character))
+      return(dataset)
+    })
+  return(datasets)
+}
+
+# Step 2: Define URLs for Data Sources
+urls <- list(
+  fastfield = "https://query.data.world/s/w67hchmwgk4xyshbmb4xkxitsamtag?dws=00000",
+  kobo_1 = "https://query.data.world/s/2ltshiqf5ablwa6pw4uijvzgm6j37j?dws=00000",
+  kobo_2 = "https://query.data.world/s/hczi25yxfpweveumkatcfobp4qbik5?dws=00000",
+  kobo_3 = "https://query.data.world/s/hgss74tml5z4f3gdi4h2ztkw4wfcx2?dws=00000",
+  kobo_4 = "https://query.data.world/s/v7amp6zyj7rxyoflfstnwpuvgse3mr?dws=00000",
+  kobo_5 = "https://query.data.world/s/wejaidwccqs2wqtg7n5ksnxmfirwhn?dws=00000"
+)
+
+metadata_url <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQc0btEwxARDVBC0Ny6ZCRlzoIjQ7txvbFoU-xlQOI97CP2tGNr4hPOskVGhr74dhCYQkBmxSm9zFkn/pub?output=csv"
+
+
+#Addressing problem with kobo_4 having col names in bahasa
+# Read both the downloaded and local versions of kobo_4
+kobo_4_downloaded <- download_and_read_excel(urls$kobo_4)
+kobo_4_local <- read_excel(here("data", "kobo", "hhs_kobo_mod_4.xlsx"))
+# Replace downloaded data's column names with those from the local file
+names(kobo_4_downloaded) <- names(kobo_4_local)
+
+
+
+# Step 3: Download Data
+datasets <- list(
+  fastfield = read.csv(urls$fastfield, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+  kobo_1 = download_and_read_excel(urls$kobo_1),
+  kobo_2 = download_and_read_excel(urls$kobo_2),
+  kobo_3 = download_and_read_excel(urls$kobo_3),
+  kobo_4 = kobo_4_downloaded,
+  kobo_5 = download_and_read_excel(urls$kobo_5)
+)
+
+metadata <- read_csv(metadata_url)
+
+# Step 4: Process and Clean Datasets
+processed_datasets <- purrr::map(datasets, process_dataset, metadata = metadata)
+cleaned_datasets <- purrr::map(processed_datasets, remove_g99_columns)
+standardized_datasets <- standardize_column_types(cleaned_datasets)
+
+# Step 5: Merge All Datasets
+merged_hhs <- purrr::reduce(standardized_datasets, full_join, by = NULL)
+
+# Clear all objects except merged_hhs
+rm(list = setdiff(ls(), "merged_hhs"))
+
+# The merged_hhs dataset is now ready for use.
+
+# Adding year
+
+# Load required libraries
+library(dplyr)
+library(lubridate)
+
+# Assuming the merged dataset is stored in a variable called merged_hhs
+# Update the 'year' column using 'g0_year' and 'g0_submission_time'
+merged_hhs <- merged_hhs %>%
+  mutate(
+    year = ifelse(is.na(g0_year), 
+                  year(ymd_hms(g0_submission_time)), 
+                  g0_year)
+  )
+
+
+#unique(merged_hhs$year)
+
+
+
+# Merging location information (Province, Municipality, and Community)
+
+# Load required libraries
+library(dplyr)
+library(readr)
+library(here)
+
+# Read metadata for location IDs
+level_1 <- read_csv(here("data", "location_ids", "level1.csv")) # Province
+level_2 <- read_csv(here("data", "location_ids", "level2.csv")) # Municipality
+level_4 <- read_csv(here("data", "location_ids", "level4.csv")) # Community
+
+# Replace coded entries with corresponding labels
+# Province
+merged_hhs$g1_province <- as.character(merged_hhs$g1_province)
+merged_hhs$g1_province <- ifelse(
+  merged_hhs$g1_province %in% level_1$name, 
+  level_1$label[match(merged_hhs$g1_province, level_1$name)], 
+  merged_hhs$g1_province
+)
+
+# Municipality
+merged_hhs$g1_municipality <- as.character(merged_hhs$g1_municipality)
+merged_hhs$g1_municipality <- ifelse(
+  merged_hhs$g1_municipality %in% level_2$name, 
+  level_2$label[match(merged_hhs$g1_municipality, level_2$name)], 
+  merged_hhs$g1_municipality
+)
+
+# Community
+merged_hhs$g1_community <- as.character(merged_hhs$g1_community)
+merged_hhs$g1_community <- ifelse(
+  merged_hhs$g1_community %in% level_4$name, 
+  level_4$label[match(merged_hhs$g1_community, level_4$name)], 
+  merged_hhs$g1_community
+)
+
+# Generate final columns for merged dataset
+merged_hhs <- merged_hhs %>%
+  mutate(
+    merged_hhs_community = g1_community,
+    merged_hhs_province = ifelse(is.na(g1_province), g1_subnational, g1_province),
+    merged_hhs_municipality = ifelse(is.na(g1_municipality), g1_local, g1_municipality)
+  )
+
+```
+
+# 1. Summary
+
+This report presents an exploratory analysis of social measures in Honduran communities participating in the Fish Forever (FF) program, focusing on trust, social cohesion, self-efficacy, and savings club participation.
+Due to key data limitations (absence of a control population, inconsistent temporal coverage at the community level, and low participation in savings clubs) the original objective of assessing program-driven change over time was revised.
+The analysis instead examines whether the duration of FF engagement is associated with current levels of the selected social measures.
+Regression results show no statistically significant relationships, with the exception of a marginal positive trend in perceived community ability to manage fisheries.
+Overall, the findings highlight critical limitations in the current dataset and point to the need for a more aligned and consistent sampling design if future survey efforts are intended to track change over time.
+
+------------------------------------------------------------------------
+
+# 2. Original Objective
+
+Request from the FF leadership:
+
+> ***"Find insights on social measures in Honduras (trust, social cohesion, self-efficacy). Specifically, assess if Fish Forever interventions are driving increases in these measures and if there are links to savings club participation"***
+
+------------------------------------------------------------------------
+
+# 3. Exploratory Anlaysis
+
+The exploratory analysis is organized into two sections.
+The first, **Available HHS Data**, presents tables that summarize the household survey coverage in Honduras, disaggregated by province, municipality, and community across multiple years.
+The second, **Selected HHS Questions**, examines the response status and distribution of responses for a set of HHS questions aligned with the core social measures of interest: Trust, Social Cohesion, Self-Efficacy, and Savings Club Participation.
+
+## Available HHS Data
+
+```{r}
+#Available Data
+merged_hhs_hon <- merged_hhs %>% 
+  filter(g1_country == "HND")
+
+
+table_province <- merged_hhs_hon %>%
+  group_by(year, merged_hhs_province) %>%
+  summarise(n_surveys = n(), .groups = "drop")
+
+table_municipality <- merged_hhs_hon %>%
+  group_by(year, merged_hhs_province, merged_hhs_municipality) %>%
+  summarise(n_surveys = n(), .groups = "drop")
+
+
+table_community <- merged_hhs_hon %>%
+  group_by(year, merged_hhs_province, merged_hhs_municipality, merged_hhs_community) %>%
+  summarise(n_surveys = n(), .groups = "drop")
+
+
+#Select relevant columns for analysis
+merged_hhs_hon <- merged_hhs_hon %>%
+  select(
+    year,
+    province = merged_hhs_province,
+    municipality = merged_hhs_municipality,
+    community = merged_hhs_community,
+    g8_trust_community,
+    g8_trust_community_emergency,
+    g8_trust_community_neighbors,
+    g8_trust_community_rebuilt,
+    g8_trust_local_decision,
+    g8_trust_regional_decision,
+    g8_my_community_ability,
+    g8_fishery_benefit_equal,
+    g12_agreement_change_fishing_behavior,
+    g12_agreement_individual_behavior,
+    g7_savings_club_member,
+    g7_emergency_savings_club 
+  )
+
+
+# Check missing data
+# Define missing value patterns
+missing_vals <- c(NA, 
+                  "",
+                  #"no_dependence", 
+                  #"No dependance",
+                  "Not Answered")
+
+# Summarize missing and non-missing values per column
+missing_summary <- map_dfr(names(merged_hhs_hon), function(col) {
+  data <- merged_hhs_hon[[col]]
+  missing_count <- sum(is.na(data) | data %in% missing_vals)
+  total_count <- length(data)
+  valid_count <- total_count - missing_count
+
+  tibble(
+    column = col,
+    missing = missing_count,
+    valid = valid_count,
+    total = total_count,
+    missing_pct = round(100 * missing_count / total_count, 1)
+  )
+})
+
+
+# Province-level Table
+table_province %>%
+  arrange(merged_hhs_province, year) %>%
+  rename(
+    Province = merged_hhs_province,
+    `Number of Surveys` = n_surveys,
+    Year = year
+  ) %>%
+  arrange(Province) %>%
+  select(Province, `Number of Surveys`, Year) %>%
+  kable("html", caption = "Household Surveys by Province and Year") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+
+# Format table for display
+table_municipality %>%
+  arrange(merged_hhs_province, merged_hhs_municipality, year) %>%
+  rename(
+    Province = merged_hhs_province,
+    Municipality = merged_hhs_municipality,
+    `Number of Surveys` = n_surveys,
+    Year = year
+  ) %>%
+  arrange(Province, Municipality) %>%
+  select(Province, Municipality, `Number of Surveys`, Year) %>%
+  kable("html", caption = "Household Surveys by Municipality and Year") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+
+# Summarize years surveyed per community, including the actual years
+community_years_surveyed <- table_community %>%
+  group_by(merged_hhs_province, merged_hhs_municipality, merged_hhs_community) %>%
+  summarise(
+    `Years Surveyed` = paste0(
+      n_distinct(year), 
+      " (", paste(sort(unique(year)), collapse = ", "), ")"
+    ),
+    .groups = "drop"
+  ) %>%
+  arrange(merged_hhs_province, merged_hhs_municipality)
+
+# Create the formatted table
+community_years_surveyed %>%
+  rename(
+    Province = merged_hhs_province,
+    Municipality = merged_hhs_municipality,
+    Community = merged_hhs_community
+  ) %>%
+  kable("html", caption = "Years Surveyed per Community (Count and List of Years)") %>%
+  kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+```
+
+Of the four provinces surveyed in Honduras, three have household survey data from more than one year.
+However, one of them (Cortés) includes only a single household surveyed in the second year (2024).
+When disaggregated to the community level, **no community has data for more than one year** (except Bajamar, which appears in both years but with only one household surveyed in 2024).
+
+## Selected HHS Questions
+
+To assess the social outcomes intended by FF, we selected a subset of HHS questions that align with the core social measures of interest: Trust, Social Cohesion, Self-Efficacy, and Savings Club Participation.
+This section explores the response status (i.e., answered vs. missing) and the distribution of responses for each selected question.
+The analysis helps us understand both the availability and variability of data, serving as a foundation for the regression-based assessments that follow.
+
+[**Trust**]{.underline}
+
+1.  Community Trust: *In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries.*
+
+2.  Neighbors Trust: *Generally speaking, most people in neighboring communities can be trusted.*
+
+3.  Local Decision Makers: *Local decision-makers/local authorities can be trusted to make decisions that benefit the community over their own interests.*
+
+4.  Regional Decision Makers: *Regional decision-makers/regional authorities can be trusted to make decisions that benefit the community over their own interests.*
+
+[**Social Cohesion**]{.underline}
+
+1.  Community Support: *My community will support me with funds and help in the case of emergency.*
+
+2.  Post-Emergency Recovery: *With the help of community members, the community can be rebuilt after emergencies occur.*
+
+3.  Community Ability: *My community has the ability to manage my fishery effectively to maximize food and profits.*
+
+4.  Fishery Benefit Equality: *Do you believe you benefit equally from the fishery as other members of the community?*
+
+[**Self-Efficacy**]{.underline}
+
+1.  Change Behavior: *I am willing to change my fishing behavior.*
+
+2.  Individual Behavior: *Through my individual fishing behavior, I can make a meaningful contribution to the sustainability of the fish catch.*
+
+[**Savings Club Participation**]{.underline}
+
+1.  *Are you or a member of your household a member of a savings club?*
+
+2.  *Does any household member have access to one of the following emergency funds? (Savings Club)*
+
+### a. [Trust]{.underline}
+
+```{r display-plots1, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_trust_community))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_trust_community)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_trust_community = case_when(
+    str_detect(tolower(g8_trust_community), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_trust_community), "^disagree$|tidak setuju|b\\. tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_trust_community), "^neither$|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_trust_community), "^agree$|setuju|d\\. setuju") ~ "Agree",
+    str_detect(tolower(g8_trust_community), "^strongly agree$|strongly_agree|sangat setuju|e\\. sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_trust_community), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_trust_community"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: c) Community Trust *",
+    caption = "* c) In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+
+```
+
+```{r display-plots2, fig.width=12, fig.height=8, dpi=300, results='asis'}
+
+
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_trust_community_neighbors))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_trust_community_neighbors)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_trust_community_neighbors = case_when(
+    str_detect(tolower(g8_trust_community_neighbors), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju|sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_trust_community_neighbors), "^disagree$|b\\. tidak setuju|tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_trust_community_neighbors), "^neither$|neither agree nor disagree|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_trust_community_neighbors), "^agree$|d\\. setuju|setuju") ~ "Agree",
+    str_detect(tolower(g8_trust_community_neighbors), "^strongly agree$|strongly_agree|e\\. sangat setuju|sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_trust_community_neighbors), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_trust_community_neighbors"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: d) Neighbors Trust *",
+    caption = "* d) Generally speaking, most people in neighboring communities can be trusted",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+```
+
+```{r display-plots3, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_trust_local_decision))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_trust_local_decision)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_trust_local_decision = case_when(
+    str_detect(tolower(g8_trust_local_decision), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju|sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_trust_local_decision), "^disagree$|b\\. tidak setuju|tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_trust_local_decision), "^neither$|neither agree nor disagree|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_trust_local_decision), "^agree$|setuju|d\\. setuju") ~ "Agree",
+    str_detect(tolower(g8_trust_local_decision), "^strongly agree$|strongly_agree|sangat setuju|e\\. sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_trust_local_decision), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_trust_local_decision"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: a) Local Decision Makers *",
+    caption = "* a) Local decision-makers/ local authorities can be trusted to make decisions that benefit the community over their own interests",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+```
+
+```{r display-plots4, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_trust_regional_decision))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_trust_regional_decision)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_trust_regional_decision = case_when(
+    str_detect(tolower(g8_trust_regional_decision), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju|sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_trust_regional_decision), "^disagree$|b\\. tidak setuju|tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_trust_regional_decision), "^neither$|neither agree nor disagree|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_trust_regional_decision), "^agree$|setuju|d\\. setuju") ~ "Agree",
+    str_detect(tolower(g8_trust_regional_decision), "^strongly agree$|strongly_agree|sangat setuju|e\\. sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_trust_regional_decision), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_trust_regional_decision"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: b) Regional Decision Makers *",
+    caption = "* b) Regional decision-makers/ regional authorities can be trusted to make decisions that benefit the community over their own interests",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+
+```
+
+### b. [Social Cohesion]{.underline}
+
+```{r display-plots5, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_trust_community_emergency))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_trust_community_emergency)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_trust_community_emergency = case_when(
+    str_detect(tolower(g8_trust_community_emergency), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju|sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_trust_community_emergency), "^disagree$|b\\. tidak setuju|tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_trust_community_emergency), "^neither$|neither agree nor disagree|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_trust_community_emergency), "^agree$|setuju|d\\. setuju") ~ "Agree",
+    str_detect(tolower(g8_trust_community_emergency), "^strongly agree$|strongly_agree|sangat setuju|e\\. sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_trust_community_emergency), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_trust_community_emergency"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(
+    response_status == "Answered",
+    response %in% response_levels,
+    province %in% c("Atlántida", "Colón")
+  ) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(c("Atlántida", "Colón")))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution for Atlántida and Colón",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: e) Community Support *",
+    caption = "* e) My community will support me with funds and help in the case of emergency",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+```
+
+```{r display-plots6, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_trust_community_rebuilt))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_trust_community_rebuilt)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_trust_community_rebuilt = case_when(
+    str_detect(tolower(g8_trust_community_rebuilt), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju|sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_trust_community_rebuilt), "^disagree$|b\\. tidak setuju|tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_trust_community_rebuilt), "^neither$|neither agree nor disagree|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_trust_community_rebuilt), "^agree$|setuju|d\\. setuju") ~ "Agree",
+    str_detect(tolower(g8_trust_community_rebuilt), "^strongly agree$|strongly_agree|sangat setuju|e\\. sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_trust_community_rebuilt), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_trust_community_rebuilt"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(
+    response_status == "Answered",
+    response %in% response_levels,
+    province %in% c("Atlántida", "Colón")
+  ) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(c("Atlántida", "Colón")))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution for Atlántida and Colón",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: f) Post-Emergency Recovery *",
+    caption = "* f) With the help of community members, the community can be rebuilt after emergencies occur",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+```
+
+```{r display-plots7, fig.width=12, fig.height=8, dpi=300, results='asis'}
+
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_my_community_ability))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_my_community_ability)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_my_community_ability = case_when(
+    str_detect(tolower(g8_my_community_ability), "^strongly disagree$|strongly_disagree|a\\. sangat tidak setuju|sangat tidak setuju") ~ "Strongly disagree",
+    str_detect(tolower(g8_my_community_ability), "^disagree$|b\\. tidak setuju|tidak setuju") ~ "Disagree",
+    str_detect(tolower(g8_my_community_ability), "^neither$|neither agree nor disagree|netral|c\\. netral") ~ "Neither agree nor disagree",
+    str_detect(tolower(g8_my_community_ability), "^agree$|setuju|d\\. setuju") ~ "Agree",
+    str_detect(tolower(g8_my_community_ability), "^strongly agree$|strongly_agree|sangat setuju|e\\. sangat setuju") ~ "Strongly agree",
+    str_detect(tolower(g8_my_community_ability), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g8_my_community_ability"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "How much do you agree with: “My community has the ability to manage my fishery effectively to maximize food and profits”?",
+    #caption = "* c) In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+```
+
+```{r display-plots8, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g8_fishery_benefit_equal))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g8_fishery_benefit_equal)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g8_fishery_benefit_equal = case_when(
+    str_detect(tolower(g8_fishery_benefit_equal), "^yes$|a\\. ya|^ya$") ~ "Yes",
+    str_detect(tolower(g8_fishery_benefit_equal), "^no$|b\\. tidak|^tidak$") ~ "No",
+    str_detect(tolower(g8_fishery_benefit_equal), "no_dependence") ~ "I don’t depend on or benefit from the fishery",
+    str_detect(tolower(g8_fishery_benefit_equal), "not answered|^na$|tidak tahu|c\\. tidak tahu") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, 
+                  "",
+                  #"no_dependence", 
+                  #"No dependance",
+                  "Not Answered")
+
+# Column to analyze
+col <- "g8_fishery_benefit_equal"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Yes", "No", "I don’t depend on or benefit from the fishery"
+)
+
+color_mapping <- c(
+"Yes" = "#6baed6",
+    "No" = "#fb6a4a",
+    "I don’t depend on or benefit from the fishery" = "#d9d9d9"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Do you believe you benefit equally from the fishery as other members of the community?",
+    #caption = "* c) In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+
+```
+
+### c. [Self Efficacy]{.underline}
+
+```{r display-plots9, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g12_agreement_change_fishing_behavior))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g12_agreement_change_fishing_behavior)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g12_agreement_change_fishing_behavior = case_when(
+    str_detect(tolower(g12_agreement_change_fishing_behavior), "^strongly disagree$|^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g12_agreement_change_fishing_behavior), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g12_agreement_change_fishing_behavior), "^neither agree nor disagree$|^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g12_agreement_change_fishing_behavior), "^agree$") ~ "Agree",
+    str_detect(tolower(g12_agreement_change_fishing_behavior), "^strongly agree$|^strongly_agree$") ~ "Strongly agree",
+    str_detect(tolower(g12_agreement_change_fishing_behavior), "^$|not answered|^na$") |
+      is.na(g12_agreement_change_fishing_behavior) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+
+################################
+
+# Define missing values explicitly
+missing_vals <- c(NA, "", "Not Answered", "no_dependence", "No dependance")
+
+# Column to analyze
+col <- "g12_agreement_change_fishing_behavior"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: i) Change Behavior *",
+    caption = "* i) I am willing to change my fishing behavior",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+```
+
+```{r display-plots10, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g12_agreement_individual_behavior))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g12_agreement_individual_behavior)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g12_agreement_individual_behavior = case_when(
+    str_detect(tolower(g12_agreement_individual_behavior), "^strongly disagree$|^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g12_agreement_individual_behavior), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g12_agreement_individual_behavior), "^neither agree nor disagree$|^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g12_agreement_individual_behavior), "^agree$") ~ "Agree",
+    str_detect(tolower(g12_agreement_individual_behavior), "^strongly agree$|^strongly_agree$") ~ "Strongly agree",
+    str_detect(tolower(g12_agreement_individual_behavior), "^$|not answered|^na$") |
+      is.na(g12_agreement_individual_behavior) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+
+################################
+
+
+# Column to analyze
+col <- "g12_agreement_individual_behavior"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Strongly agree", "Agree", "Neither agree nor disagree",
+  "Disagree", "Strongly disagree"
+)
+
+color_mapping <- c(
+  "Strongly agree" = "#6baed6",
+  "Agree" = "#9ecae1",
+  "Neither agree nor disagree" = "#d9d9d9",
+  "Disagree" = "#fcae91",
+  "Strongly disagree" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Please rate your agreement with the following statement: f) Individual Behavior *",
+    caption = "* f) Through my individual fishing behavior, I can make a meaningful contribution to the sustainability of the fish catch",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+```
+
+### d. [Savings Club]{.underline}
+
+```{r display-plots11, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g7_savings_club_member))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g7_savings_club_member)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g7_savings_club_member = case_when(
+    str_detect(tolower(g7_savings_club_member), "^yes$") ~ "Yes",
+    str_detect(tolower(g7_savings_club_member), "^no$") ~ "No",
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+
+
+################################
+
+
+# Column to analyze
+col <- "g7_savings_club_member"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Yes", "No"
+)
+
+color_mapping <- c(
+"Yes" = "#6baed6",
+    "No" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(
+    response_status == "Answered",
+    response %in% response_levels,
+    province %in% c("Atlántida", "Colón")
+  ) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(c("Atlántida", "Colón")))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution for Atlántida and Colón",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Are you or a member of your household a member of a savings club?",
+    # caption = "* c) In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+
+
+```
+
+```{r display-plots12, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# # Count number of NA values 
+# sum(is.na(merged_hhs_hon$g7_emergency_savings_club))
+# 
+# # Unique values
+# unique(merged_hhs_hon$g7_emergency_savings_club)
+
+# Standardize entries
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(g7_emergency_savings_club = case_when(
+    str_detect(tolower(g7_emergency_savings_club), "^yes$") ~ "Yes",
+    str_detect(tolower(g7_emergency_savings_club), "^no$") ~ "No",
+    str_detect(tolower(g7_emergency_savings_club), "not answered") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+
+################################
+
+
+# Column to analyze
+col <- "g7_emergency_savings_club"
+
+# Recode data to identify missing/answered
+df_example <- merged_hhs_hon %>%
+  mutate(
+    response_status = if_else(.data[[col]] %in% missing_vals, "Missing", "Answered"),
+    response = .data[[col]]
+  )
+
+# 1. Horizontal bar plot of Answered vs Missing per province
+plot_status_province <- df_example %>%
+  group_by(province, response_status) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(y = fct_rev(province), x = n, fill = response_status)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(n, " (", percent(prop, accuracy = 1), ")")),
+            position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Answered" = "#1f78b4", "Missing" = "#d9d9d9")) +
+  labs(
+    title = "Response Status by Province",
+    y = "Province",
+    x = "Count",
+    fill = NULL
+  ) +
+  theme_minimal()
+
+# 2. Response distribution plot by province
+response_levels <- c(
+  "Yes", "No"
+)
+
+color_mapping <- c(
+"Yes" = "#6baed6",
+    "No" = "#fb6a4a"
+)
+
+plot_responses <- df_example %>%
+  filter(response_status == "Answered", response %in% response_levels) %>%
+  group_by(province, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(province) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup() %>%
+  mutate(
+    response = factor(response, levels = rev(response_levels)),
+    province = factor(province, levels = rev(sort(unique(province))))
+  ) %>%
+  ggplot(aes(x = province, y = prop, fill = response)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(aes(label = percent(prop, accuracy = 1)),
+            position = position_fill(vjust = 0.5),
+            color = "black", size = 3) +
+  scale_fill_manual(values = color_mapping) +
+  coord_flip() +
+  labs(
+    title = "Response Distribution by Province",
+    x = "Province",
+    y = "Proportion",
+    fill = "Response"
+  ) +
+  theme_minimal()
+
+# Combine plots with patchwork
+(plot_status_province / plot_responses) +
+  plot_layout(heights = c(3, 4)) +
+  plot_annotation(
+    title = "Does any household member have access to one of the following emergency funds? 6. Savings Club",
+    #caption = "* c) In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20)),
+      plot.caption = element_text(size = 9, hjust = 0)
+    )
+  )
+
+```
+
+The plots show that several questions have **significant missing data**, indicating they were not included in all household surveys conducted in Honduras.
+Additionally, the plots reveal that **Savings Club Participation is very low** across surveyed communities, limiting the potential to explore meaningful relationships between savings club participation and social measures.
+
+------------------------------------------------------------------------
+
+# 4. Limitations and Updated Objective
+
+The original objective of this analysis, as outlined in Section 2, was to: *“Find insights on social measures in Honduras (trust, social cohesion, self-efficacy). Specifically, assess if Fish Forever interventions are driving increases in these measures and if there are links to savings club participation.”*
+
+However, meeting this objective is not feasible due to three key limitations:
+
+1.  **Lack of a Counterfactual (Control Population):** The absence of non-intervention (control) communities prevents us from isolating the effects of FF on social measures.
+    Any observed changes could be influenced by other factors such as economic shifts, governance changes, climate variability, or broader social dynamics; making attribution to FF alone unreliable.
+
+2.  **Insufficient Temporal and Spatial Data Consistency**: As shown in the tables above, no community has been surveyed in multiple years, making it impossible to assess changes over time at the community level.
+    While a few provinces have been surveyed in more than one year, aggregating to that level would likely reflect geographic differences rather than true temporal change driven by program engagement.
+
+3.  **Low Savings Club Participation**: The plots above show that savings club participation is extremely limited across the surveyed sample.
+    This lack of representation restricts the statistical power to explore meaningful relationships between participation and social outcomes.
+
+Given these limitations, the revised objective of the analysis is to:
+
+> ***“Examine the relationship between the duration of Fish Forever’s engagement in communities and key social measures (trust, social cohesion, self-efficacy).”***
+
+This reframed objective focuses on cross-sectional associations between engagement length and current perceptions, rather than attempting to assess change or causal impact.
+
+------------------------------------------------------------------------
+
+# 5. Analysis of FF Engagement Duration and Social Measures
+
+```{r}
+program_start <- read_csv(here("data", "fp_level4_program_start.csv"), locale = locale(encoding = "ISO-8859-1"))
+
+program_start <- program_start %>%
+  mutate(level4_name = case_when(
+    level4_name == "Dos Bocas / Brisas del Mar" ~ "Dos Bocas",
+    level4_name == "Omoa casco" ~ "Omoa",
+    level4_name == "Punta Piedra" ~ "Punta de Piedra",
+    level4_name == "Iriona Viejo" ~ "Iriona",
+    level4_name == "Estero / Las Flores" ~ "Las Flores",
+    level4_name == "Santa Rosa Aguan Centro / La Planada" ~ "Santa Rosa Aguan Centro",
+    level4_name == "Vuelta Grande/Fifi/Manguito" ~ "Vuelta Grande",
+    level4_name == "Punta Gorda (JSG)" ~ "Punta Gorda",
+    TRUE ~ level4_name
+  ))
+
+# Duplicate the row where level4_name == "Santa Rosa Aguan Centro"
+duplicate_row <- program_start %>%
+  filter(level4_name == "Santa Rosa Aguan Centro") %>%
+  mutate(level4_name = "La Planada")
+
+# Add it to the program_start dataframe
+program_start <- bind_rows(program_start, duplicate_row)
+
+
+# # Unique names from both datasets
+# hhs_names <- unique(merged_hhs_hon$community)
+# program_names <- unique(program_start$level4_name)
+# # Find names in HHS not present in Program
+# hhs_not_in_program <- setdiff(hhs_names, program_names)
+# hhs_not_in_program
+
+# Add program start to HHS data --> No program start data for Marañones
+merged_hhs_hon <- merged_hhs_hon %>%
+  left_join(
+    program_start %>% select(level4_name, program_start),
+    by = c("community" = "level4_name")
+  )
+
+merged_hhs_hon <- merged_hhs_hon %>% 
+  filter(community != "Marañones")
+
+```
+
+In this analysis, we explore the potential impact of FF engagement duration on the three critical social measures: Trust, Social Cohesion, and Self-Efficacy.
+Using data collected through HHS across Honduran communities, we assess whether prolonged involvement in the Fish Forever program correlates with improvements in these measures.
+To enable this analysis, we incorporated data on when the program began in each community to calculate the duration of engagement.
+Linear regression models were then used to examine these relationships at the community level, accounting for variations in program duration across different sites.
+
+## a. [Trust]{.underline}
+
+```{r display-plots13, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# 1. Setup & Prepare the Data:
+
+# Convert trust responses to numeric scale
+likert_to_numeric <- function(x) {
+  case_when(
+    x == "Strongly disagree" ~ 1,
+    x == "Disagree" ~ 2,
+    x == "Neither agree nor disagree" ~ 3,
+    x == "Agree" ~ 4,
+    x == "Strongly agree" ~ 5,
+    TRUE ~ NA_real_
+  )
+}
+
+# Add numeric trust columns
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(
+    trust_community_num = likert_to_numeric(g8_trust_community),
+    trust_neighbors_num = likert_to_numeric(g8_trust_community_neighbors),
+    trust_local_decision_num = likert_to_numeric(g8_trust_local_decision),
+    trust_regional_decision_num = likert_to_numeric(g8_trust_regional_decision)
+  )
+
+# Convert dates and calculate duration of engagement
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(
+    survey_date = make_date(year, 6, 30), # mid-year surveys
+    program_start_date = dmy(program_start), # "18/4/2024" format
+    ff_duration_years = as.numeric(difftime(survey_date, program_start_date, units = "days")) / 365,
+    ff_duration_years = if_else(ff_duration_years < 0, 0, ff_duration_years) # negative durations as baseline (0)
+  )
+
+# 2. Aggregate Trust Scores at Community Level:
+
+community_trust <- merged_hhs_hon %>%
+  group_by(province, municipality, community) %>%
+  summarise(
+    mean_trust_community = mean(trust_community_num, na.rm = TRUE),
+    mean_trust_neighbors = mean(trust_neighbors_num, na.rm = TRUE),
+    mean_trust_local_decision = mean(trust_local_decision_num, na.rm = TRUE),
+    mean_trust_regional_decision = mean(trust_regional_decision_num, na.rm = TRUE),
+    avg_ff_duration_years = mean(ff_duration_years, na.rm = TRUE),
+    n_surveys = n()
+  ) %>%
+  ungroup()
+
+# 3. Linear Regression:
+
+# Community Trust
+lm_community_trust <- lm(mean_trust_community ~ avg_ff_duration_years, data = community_trust)
+
+# Neighbors Trust
+lm_neighbors_trust <- lm(mean_trust_neighbors ~ avg_ff_duration_years, data = community_trust)
+
+# Local Decision-makers Trust
+lm_local_decision_trust <- lm(mean_trust_local_decision ~ avg_ff_duration_years, data = community_trust)
+
+# Regional Decision-makers Trust
+lm_regional_decision_trust <- lm(mean_trust_regional_decision ~ avg_ff_duration_years, data = community_trust)
+
+# Summary of Results
+# summary(lm_community_trust)
+# summary(lm_neighbors_trust)
+# summary(lm_local_decision_trust)
+# summary(lm_regional_decision_trust)
+
+# 4. Visualization:
+
+trust1 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_community)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+  labs(
+    title = "Community Trust",
+    x = "Fish Forever Engagement Duration (Years)",
+    y = "Avg. Community Trust"
+  ) +
+  theme_minimal()
+
+trust2 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_neighbors)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+  labs(
+    title = "Neighbors Trust",
+    x = "Fish Forever Engagement Duration (Years)",
+    y = "Avg. Neighbors Trust"
+  ) +
+  theme_minimal()
+
+trust3 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_local_decision)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+  labs(
+    title = "Local Decision Makers Trust",
+    x = "Fish Forever Engagement Duration (Years)",
+    y = "Avg. Local Decision-makers Trust"
+  ) +
+  theme_minimal()
+
+trust4 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_regional_decision)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+  labs(
+    title = "Regional Decision Makers Trust",
+    x = "Fish Forever Engagement Duration (Years)",
+    y = "Avg. Regional Decision-makers Trust"
+  ) +
+  theme_minimal()
+
+
+(trust1 + trust2) / (trust3 + trust4) +
+  plot_layout(heights = c(1, 1)) +
+  plot_annotation(
+    title = "Relationship Between FF Engagement Duration and Trust",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
+    )
+  )
+
+
+```
+
+[**Interpretation of Results**]{.underline}
+
+-   **Community Trust**: There is no statistically significant relationship between FF engagement duration and community trust (p-value = 0.909).
+    The coefficient is slightly negative (coefficient = -0.008), and the model has no explanatory power (Adjusted R² = -0.018).
+
+-   **Neighbors Trust**: A small positive trend (coefficient = 0.062) exists between FF engagement duration and trust in neighboring communities, but it is not statistically significant (p-value = 0.415).
+    The model explains very little of the variance (Adjusted R² = -0.006).
+
+-   **Local Decision-makers Trust**: There is a mild positive association (coefficient = 0.085) between FF engagement duration and trust in local decision-makers, but the relationship is not statistically significant (p-value = 0.326).
+    The model has almost no explanatory power (Adjusted R² = -0.0003).
+
+-   **Regional Decision-makers Trust**: A similar mild positive trend (coefficient = 0.062) is observed for trust in regional authorities, though not statistically significant (p-value = 0.350).
+    The adjusted R² is -0.002, indicating low explanatory value.
+
+## b. [Social Cohesion]{.underline}
+
+```{r display-plots14, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# 1. Likert to numeric conversion function
+likert_to_numeric <- function(x) {
+  case_when(
+    x == "Strongly disagree" ~ 1,
+    x == "Disagree" ~ 2,
+    x == "Neither agree nor disagree" ~ 3,
+    x == "Agree" ~ 4,
+    x == "Strongly agree" ~ 5,
+    x == "No" ~ 1,
+    x == "Yes" ~ 5,
+    TRUE ~ NA_real_
+  )
+}
+
+# 2. Convert data and calculate FF duration
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(
+    survey_date = make_date(year, 6, 30),
+    program_start_date = dmy(program_start),
+    ff_duration_years = as.numeric(difftime(survey_date, program_start_date, units = "days")) / 365,
+    ff_duration_years = if_else(ff_duration_years < 0, 0, ff_duration_years)
+  )
+
+# 3. Social Cohesion Analysis
+# Create numeric columns
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(
+    community_support_num = likert_to_numeric(g8_trust_community_emergency),
+    post_emergency_recovery_num = likert_to_numeric(g8_trust_community_rebuilt),
+    community_ability_num = likert_to_numeric(g8_my_community_ability),
+    fishery_benefit_equal_num = likert_to_numeric(g8_fishery_benefit_equal)
+  )
+
+# Aggregate at community level
+social_cohesion <- merged_hhs_hon %>%
+  group_by(province, municipality, community) %>%
+  summarise(
+    mean_community_support = mean(community_support_num, na.rm = TRUE),
+    mean_post_emergency_recovery = mean(post_emergency_recovery_num, na.rm = TRUE),
+    mean_community_ability = mean(community_ability_num, na.rm = TRUE),
+    mean_fishery_benefit_equal = mean(fishery_benefit_equal_num, na.rm = TRUE),
+    avg_ff_duration_years = mean(ff_duration_years, na.rm = TRUE),
+    n_surveys = n()
+  ) %>% ungroup()
+
+# Linear regression analyses
+lm_community_support <- lm(mean_community_support ~ avg_ff_duration_years, data = social_cohesion)
+lm_post_emergency_recovery <- lm(mean_post_emergency_recovery ~ avg_ff_duration_years, data = social_cohesion)
+lm_community_ability <- lm(mean_community_ability ~ avg_ff_duration_years, data = social_cohesion)
+lm_fishery_benefit_equal <- lm(mean_fishery_benefit_equal ~ avg_ff_duration_years, data = social_cohesion)
+
+# Summarize regression results
+# summary(lm_community_support)
+# summary(lm_post_emergency_recovery)
+# summary(lm_community_ability)
+# summary(lm_fishery_benefit_equal)
+
+# Visualize results
+plot_cohesion <- function(df, y_var, y_label, title) {
+  ggplot(df, aes(x = avg_ff_duration_years, y = .data[[y_var]])) +
+    geom_point(size = 2, alpha = 0.7) +
+    geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+    labs(
+      title = title,
+      x = "Fish Forever Engagement Duration (Years)",
+      y = y_label
+    ) +
+    theme_minimal()
+}
+
+plot_cohesion1 <- plot_cohesion(social_cohesion, "mean_community_support", "Avg. Community Support", "Community Support")
+plot_cohesion2 <- plot_cohesion(social_cohesion, "mean_post_emergency_recovery", "Avg. Post-Emergency Recovery", "Post-Emergency Recovery")
+plot_cohesion3 <- plot_cohesion(social_cohesion, "mean_community_ability", "Avg. Community Fishery Management Ability", "Community Ability")
+plot_cohesion4 <- plot_cohesion(social_cohesion, "mean_fishery_benefit_equal", "Avg. Equal Benefit from Fishery", "Fishery Equal Benefit")
+
+
+(plot_cohesion1 + plot_cohesion2) / (plot_cohesion3 + plot_cohesion4) +
+  plot_layout(heights = c(1, 1)) +
+  plot_annotation(
+    title = "Relationship Between FF Engagement Duration and Social Cohesion",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
+    )
+  )
+
+```
+
+[**Interpretation of Results**]{.underline}
+
+-   **Community Support:** There is no statistically significant relationship between FF engagement duration and perceptions of community support (p-value = 0.723).
+    The coefficient is small (coefficient = 0.034), and the model explains virtually no variation (Adjusted R² = -0.072).
+
+-   **Post-Emergency Recovery**: Likewise, there is no significant association between FF duration and perceptions of post-emergency recovery (p-value = 0.789).
+    The coefficient is slightly negative (coefficient = -0.017), and the adjusted R² is -0.077.
+
+-   **Community Ability (marginal result)**: There is a slight positive trend between FF engagement duration and perceived ability of the community to manage fisheries (coefficient = 0.125), with marginal significance (p-value = 0.095).
+    The model has modest explanatory power (Adjusted R² = 0.033).
+
+-   **Fishery Benefit Equality:** No relationship is found between FF engagement duration and perceived equality in fishery benefits (p-value = 0.932).
+    The coefficient is nearly zero (coefficient = -0.007), and the adjusted R² is -0.018.
+
+## c. [Self Efficacy]{.underline}
+
+```{r display-plots15, fig.width=12, fig.height=8, dpi=300, results='asis'}
+# 4. Self-Efficacy Analysis
+merged_hhs_hon <- merged_hhs_hon %>%
+  mutate(
+    change_behavior_num = likert_to_numeric(g12_agreement_change_fishing_behavior),
+    individual_behavior_num = likert_to_numeric(g12_agreement_individual_behavior)
+  )
+
+# Aggregate at community level
+self_efficacy <- merged_hhs_hon %>%
+  group_by(province, municipality, community) %>%
+  summarise(
+    mean_change_behavior = mean(change_behavior_num, na.rm = TRUE),
+    mean_individual_behavior = mean(individual_behavior_num, na.rm = TRUE),
+    avg_ff_duration_years = mean(ff_duration_years, na.rm = TRUE),
+    n_surveys = n()
+  ) %>% ungroup()
+
+# Linear regression analyses
+lm_change_behavior <- lm(mean_change_behavior ~ avg_ff_duration_years, data = self_efficacy)
+lm_individual_behavior <- lm(mean_individual_behavior ~ avg_ff_duration_years, data = self_efficacy)
+
+# Summarize regression results
+# summary(lm_change_behavior)
+# summary(lm_individual_behavior)
+
+# Visualize results
+plot_efficacy <- function(df, y_var, y_label, title) {
+  ggplot(df, aes(x = avg_ff_duration_years, y = .data[[y_var]])) +
+    geom_point(size = 2, alpha = 0.7) +
+    geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+    labs(
+      title = title,
+      x = "Fish Forever Engagement Duration (Years)",
+      y = y_label
+    ) +
+    theme_minimal()
+}
+
+plot_efficacy1<- plot_efficacy(self_efficacy, "mean_change_behavior", "Avg. Willingness to Change Behavior", "Willingness to Change Behavior")
+plot_efficacy2 <- plot_efficacy(self_efficacy, "mean_individual_behavior", "Avg. Belief in Individual Impact", "Belief in Individual Impact")
+
+
+(plot_efficacy1 / plot_efficacy2)  +
+  plot_layout(heights = c(1, 1)) +
+  plot_annotation(
+    title = "Relationship Between FF Engagement Duration and Self Efficacy",
+    theme = theme(
+      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
+    )
+  )
+
+```
+
+[**Interpretation of Results**]{.underline}
+
+-   **Change Behavior**: There is no significant relationship between FF engagement duration and willingness to change fishing behavior (p-value = 0.739).
+    The coefficient is small (coefficient = 0.021), and the model has no explanatory value (Adjusted R² = -0.016).
+
+-   **Individual Behavior Impact**: A small positive trend exists between FF engagement and belief in one’s individual impact on sustainability, but the result is not statistically significant (p-value = 0.220).
+    The coefficient is small (coefficient = 0.094), with low explanatory power (Adjusted R² = 0.010).
+
+# 6. Conclusions
+
+Due to key limitations in the available data (absence of a control population, a lack of temporally consistent data at the community level, and very limited participation in savings clubs) we revised the original objective of this analysis.
+Rather than assessing whether FF interventions have caused improvements in social measures over time or are linked to savings club participation, we focused instead on examining whether the duration of FF engagement in a community is associated with current levels of trust, social cohesion, and self-efficacy.
+
+Overall, the regression analyses indicate limited evidence of such a relationship.
+Trust metrics showed no statistically significant association with the length of FF engagement.
+Likewise, indicators of social cohesion and self-efficacy did not exhibit significant correlations with program duration.
+One exception was a weak significant positive relationship between FF engagement duration and perceived community ability to manage fisheries, which may suggest some marginal incremental gains over time.
+
+Ultimately, this report highlights the limitations of the current dataset more than it reveals actionable findings.
+The fragmented and inconsistent structure of the data poses serious constraints for assessing change over time or attributing impact.
+With these limitations comes a clear recommendation: if the goal of future survey efforts is to track changes in social measures, FF will need to adopt an aligned and consistent sampling design.
+Notably, I understand that FF is already aware of these challenges and is considering improvements in this area, which will be essential for generating more meaningful and evaluable data in future assessments.
