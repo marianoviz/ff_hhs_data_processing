@@ -1,0 +1,1631 @@
+---
+title: "Fishers and Farmers in Fish Forever: Household Income Sources Across Countries"
+author: "Mariano Viz"
+date: "2025-07-12"
+output:
+  html_document:
+    code_folding: hide
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: false      
+      smooth_scroll: true
+editor_options:
+  markdown:
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, collapse = TRUE, comment = "#>", fig.align = 'center')
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(effsize)
+library(jsonlite)
+library(readxl)
+library(data.world)
+library(lmtest)
+library(sandwich)
+library(broom)
+library(rstatix)
+library(gridExtra)
+library(stringr)
+library(ggstats)
+library(patchwork)
+library(scales)
+library(forcats)
+library(readr)
+library(tidyr)
+library(cowplot)
+library(forcats)
+library(grid)
+library(kableExtra)
+
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Summary
+
+This short report analyzes household income sources and presents a breakdown of household types (fishers only, fishers who also farm, and non-fishers) across Fish Forever countries, disaggregated by year. The findings highlight the diversity of livelihood strategies across regions, although artisanal fishing consistently ranks as the top income source, with farming regularly appearing among the top three.
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Getting merged_hhs dataset: Basic Script + Correction for kobo_4 col names in Bahasa
+
+
+# Load Required Libraries
+library(httr)
+library(readxl)
+library(readr)
+library(dplyr)
+library(purrr)
+library(here)
+
+# Step 1: Define Helper Functions
+
+## Function to download and read Excel files
+download_and_read_excel <- function(url) {
+  temp_file <- tempfile(fileext = ".xlsx")
+  GET(url, write_disk(temp_file, overwrite = TRUE))
+  data <- read_excel(temp_file)
+  unlink(temp_file)
+  return(data)
+}
+
+## Function to process datasets using metadata
+process_dataset <- function(dataset, metadata) {
+  column_map <- metadata %>%
+    tidyr::separate_rows(`Original Column Name`, sep = "; ") %>%
+    select(`Original Column Name`, `Standardized Column Name`) %>%
+    distinct() %>%
+    group_by(`Original Column Name`) %>%
+    slice(1) %>%
+    ungroup() %>%
+    filter(`Original Column Name` %in% names(dataset))
+  
+  new_colnames <- names(dataset) %>%
+    purrr::map_chr(~ {
+      if (.x %in% column_map$`Original Column Name`) {
+        column_map$`Standardized Column Name`[column_map$`Original Column Name` == .x]
+      } else {
+        NA_character_
+      }
+    })
+  
+  names(dataset) <- new_colnames
+  dataset <- dataset %>%
+    select(any_of(metadata$`Standardized Column Name`))
+  return(dataset)
+}
+
+## Function to remove note columns (starting with "g99")
+remove_g99_columns <- function(dataset) {
+  dataset %>% select(-starts_with("g99"))
+}
+
+## Function to standardize column types across datasets
+standardize_column_types <- function(datasets) {
+  all_columns <- datasets %>%
+    purrr::map(names) %>%
+    purrr::reduce(union)
+  
+  datasets <- datasets %>%
+    purrr::map(~ {
+      dataset <- .x
+      missing_columns <- setdiff(all_columns, names(dataset))
+      dataset[missing_columns] <- NA
+      dataset <- dataset %>%
+        mutate(across(everything(), as.character))
+      return(dataset)
+    })
+  return(datasets)
+}
+
+# Step 2: Define URLs for Data Sources
+urls <- list(
+  fastfield = "https://query.data.world/s/w67hchmwgk4xyshbmb4xkxitsamtag?dws=00000",
+  kobo_1 = "https://query.data.world/s/2ltshiqf5ablwa6pw4uijvzgm6j37j?dws=00000",
+  kobo_2 = "https://query.data.world/s/hczi25yxfpweveumkatcfobp4qbik5?dws=00000",
+  kobo_3 = "https://query.data.world/s/hgss74tml5z4f3gdi4h2ztkw4wfcx2?dws=00000",
+  kobo_4 = "https://query.data.world/s/v7amp6zyj7rxyoflfstnwpuvgse3mr?dws=00000",
+  kobo_5 = "https://query.data.world/s/wejaidwccqs2wqtg7n5ksnxmfirwhn?dws=00000"
+)
+
+metadata_url <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQc0btEwxARDVBC0Ny6ZCRlzoIjQ7txvbFoU-xlQOI97CP2tGNr4hPOskVGhr74dhCYQkBmxSm9zFkn/pub?output=csv"
+
+
+#Addressing problem with kobo_4 having col names in bahasa
+# Read both the downloaded and local versions of kobo_4
+kobo_4_downloaded <- download_and_read_excel(urls$kobo_4)
+kobo_4_local <- read_excel(here("data", "kobo", "hhs_kobo_mod_4.xlsx"))
+# Replace downloaded data's column names with those from the local file
+names(kobo_4_downloaded) <- names(kobo_4_local)
+
+
+
+# Step 3: Download Data
+datasets <- list(
+  fastfield = read.csv(urls$fastfield, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+  kobo_1 = download_and_read_excel(urls$kobo_1),
+  kobo_2 = download_and_read_excel(urls$kobo_2),
+  kobo_3 = download_and_read_excel(urls$kobo_3),
+  kobo_4 = kobo_4_downloaded,
+  kobo_5 = download_and_read_excel(urls$kobo_5)
+)
+
+metadata <- read_csv(metadata_url)
+
+# Step 4: Process and Clean Datasets
+processed_datasets <- purrr::map(datasets, process_dataset, metadata = metadata)
+cleaned_datasets <- purrr::map(processed_datasets, remove_g99_columns)
+standardized_datasets <- standardize_column_types(cleaned_datasets)
+
+# Step 5: Merge All Datasets
+merged_hhs <- purrr::reduce(standardized_datasets, full_join, by = NULL)
+
+# Clear all objects except merged_hhs
+rm(list = setdiff(ls(), "merged_hhs"))
+
+# The merged_hhs dataset is now ready for use.
+
+# Adding year
+
+# Load required libraries
+library(dplyr)
+library(lubridate)
+
+# Assuming the merged dataset is stored in a variable called merged_hhs
+# Update the 'year' column using 'g0_year' and 'g0_submission_time'
+merged_hhs <- merged_hhs %>%
+  mutate(
+    year = ifelse(is.na(g0_year), 
+                  year(ymd_hms(g0_submission_time)), 
+                  g0_year)
+  )
+
+
+#unique(merged_hhs$year)
+
+
+
+# Merging location information (Province, Municipality, and Community)
+
+# Load required libraries
+library(dplyr)
+library(readr)
+library(here)
+
+# Read metadata for location IDs
+level_1 <- read_csv(here("data", "location_ids", "level1.csv")) # Province
+level_2 <- read_csv(here("data", "location_ids", "level2.csv")) # Municipality
+level_4 <- read_csv(here("data", "location_ids", "level4.csv")) # Community
+
+# Replace coded entries with corresponding labels
+# Province
+merged_hhs$g1_province <- as.character(merged_hhs$g1_province)
+merged_hhs$g1_province <- ifelse(
+  merged_hhs$g1_province %in% level_1$name, 
+  level_1$label[match(merged_hhs$g1_province, level_1$name)], 
+  merged_hhs$g1_province
+)
+
+# Municipality
+merged_hhs$g1_municipality <- as.character(merged_hhs$g1_municipality)
+merged_hhs$g1_municipality <- ifelse(
+  merged_hhs$g1_municipality %in% level_2$name, 
+  level_2$label[match(merged_hhs$g1_municipality, level_2$name)], 
+  merged_hhs$g1_municipality
+)
+
+# Community
+merged_hhs$g1_community <- as.character(merged_hhs$g1_community)
+merged_hhs$g1_community <- ifelse(
+  merged_hhs$g1_community %in% level_4$name, 
+  level_4$label[match(merged_hhs$g1_community, level_4$name)], 
+  merged_hhs$g1_community
+)
+
+# Generate final columns for merged dataset
+merged_hhs <- merged_hhs %>%
+  mutate(
+    merged_hhs_community = g1_community,
+    merged_hhs_province = ifelse(is.na(g1_province), g1_subnational, g1_province),
+    merged_hhs_municipality = ifelse(is.na(g1_municipality), g1_local, g1_municipality)
+  )
+
+
+# Standardised countries
+merged_hhs <- merged_hhs %>%
+  mutate(g1_country = case_when(
+    g1_country %in% c("FSM", "HND", "BRA", "IDN", "PLW", "GTM", "MOZ", "PHL") ~ g1_country,
+    g1_country == "Indonesia" ~ "IDN",
+    is.na(g1_country) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Step 1: Create a lookup table from level_1
+province_to_country <- level_1 %>%
+  select(label, country) %>%
+  distinct()
+
+# Step 2: Fill missing g1_country for 2025 using a left join
+merged_hhs <- merged_hhs %>%
+  left_join(
+    province_to_country,
+    by = c("merged_hhs_province" = "label")
+  ) %>%
+  mutate(
+    g1_country = if_else(
+      year == 2025 & is.na(g1_country),
+      country,
+      g1_country
+    )
+  ) %>%
+  select(-country)  # remove helper column from join
+
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Notes and Assumptions
+
+-   **Inclusive Classification**: Households were classified as engaged in fishing or farming if they reported any income from artisanal/industrial fishing or farming, respectively.
+    Even minimal income from these activities led to inclusion.
+
+-   **Income Focus**: This analysis uses self-reported income-share data, potentially underestimating fishing or farming activities performed solely for household consumption, as non-monetary activities are not captured.
+
+-   **Data Cleaning**: Observations not totaling 100% across income sources were excluded, reducing the dataset from 45,293 households to the 40,998 households analyzed.
+
+-   **Cross-sectional Limitations**: Yearly comparisons in these plots should not be interpreted as trends or changes over time, as surveys occurred in different locations each year.
+    Tracking actual progression requires repeated sampling within the same populations.
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Fish Forever Overview
+
+```{r household-income-sources-ff, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+
+# Create a vector of the income percentage columns
+income_cols <- c(
+  "g4_hh_average_income_source_a_income_farming",
+  "g4_hh_average_income_source_b_income_harvesting",
+  "g4_hh_average_income_source_c_income_fishing_artisanal",
+  "g4_hh_average_income_source_d_income_fishing_aquaculture",
+  "g4_hh_average_income_source_e_income_buying_trading",
+  "g4_hh_average_income_source_f_income_processing",
+  "g4_hh_average_income_source_g_income_extraction",
+  "g4_hh_average_income_source_h_income_tourism",
+  "g4_hh_average_income_source_i_income_other_wage",
+  "g4_hh_average_income_source_j_income_industrial",
+  "g4_hh_average_income_source_k_income_other"
+)
+
+
+# Step 1: Ensure numeric and sum to 100
+merged_hhs_with_sum <- merged_hhs %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) # Take out all the columns that do not add to 100!!
+
+# Step 2: Select columns
+merged_hhs_source_all <- merged_hhs_with_sum %>%
+  select(
+    country = g1_country,
+    year,
+    province = merged_hhs_province,
+    municipality = merged_hhs_municipality,
+    community = merged_hhs_community,
+    all_of(income_cols)
+  )
+
+# Step 3: Recode labels
+income_labels <- c(
+  "Farming",
+  "Forest Harvesting",
+  "Artisanal Fishing",
+  "Aquaculture",
+  "Fish Buying/Trading",
+  "Fish Processing",
+  "Marine Extraction",
+  "Marine Tourism",
+  "Other Wage Labor",
+  "Industrial Fishing",
+  "Other"
+)
+
+# Step 4: Long-format and summarise
+df_income_long_all <- merged_hhs_source_all %>%
+  select(all_of(income_cols)) %>%
+  mutate(across(everything(), as.numeric)) %>%
+  filter(if_any(everything(), ~ !is.na(.))) %>%
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop))
+
+# Step 5: Set factor levels by decreasing proportion
+df_income_long_all$source <- factor(df_income_long_all$source, levels = df_income_long_all$source)
+
+# Step 6: Define custom color palette in correct order
+source_colors <- c(
+  "Artisanal Fishing"    = "#A6CEE3", 
+  "Farming"              = "#B2DF8A", 
+  "Other Wage Labor"     = "#CAB2D6", 
+  "Other"                = "#FDBF6F",  
+  "Fish Buying/Trading"  = "#FB9A99", 
+  "Fish Processing"      = "#E31A1C", 
+  "Industrial Fishing"   = "#1F78B4", 
+  "Aquaculture"          = "#FF7F00",  
+  "Forest Harvesting"    = "#33A02C", 
+  "Marine Tourism"       = "#6A3D9A",  
+  "Marine Extraction"    = "#FFFF99"  
+)
+
+# Reorder source_colors to match bar order
+ordered_colors <- source_colors[names(source_colors) %in% levels(df_income_long_all$source)]
+ordered_colors <- ordered_colors[match(levels(df_income_long_all$source), names(ordered_colors))]
+
+# Step 7: Generate legend labels
+legend_labels <- paste0(levels(df_income_long_all$source), " (", scales::percent(df_income_long_all$prop, accuracy = 1), ")")
+n_total <- nrow(merged_hhs_with_sum)
+
+# Step 8: Plot
+source1 <- ggplot(df_income_long_all, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(
+    values = ordered_colors,
+    labels = legend_labels
+  ) +
+  labs(
+    title = paste0("Aggregated Income Share by Source (All Countries, n = ", formatC(n_total, format = "d", big.mark = ","), ")"),
+    x = "",
+    y = "Proportion of Reported Income Sources",
+    fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "right",
+    legend.title = element_text(face = "bold"),
+    legend.text = element_text(size = 10),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+
+# Step 1: Ensure numeric and sum to 100
+merged_hhs_with_sum <- merged_hhs %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100)
+
+# Step 2: Select and reshape
+merged_hhs_source_all <- merged_hhs_with_sum %>%
+  select(
+    year,
+    all_of(income_cols)
+  )
+
+income_labels <- c(
+  "Farming",
+  "Forest Harvesting",
+  "Artisanal Fishing",
+  "Aquaculture",
+  "Fish Buying/Trading",
+  "Fish Processing",
+  "Marine Extraction",
+  "Marine Tourism",
+  "Other Wage Labor",
+  "Industrial Fishing",
+  "Other"
+)
+
+# Step 3: Long format and summarize
+df_income_yearly <- merged_hhs_source_all %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total / sum(total)) %>%
+  ungroup()
+
+df_income_yearly$source <- factor(df_income_yearly$source, levels = names(source_colors))
+
+# Step 4: Get survey counts per year for facet labels
+survey_counts <- merged_hhs_with_sum %>%
+  count(year, name = "n")
+
+# Create a named vector for custom facet titles
+facet_labels <- setNames(
+  paste0("Year ", survey_counts$year, " (n = ", formatC(survey_counts$n, format = "d", big.mark = ","), ")"),
+  survey_counts$year
+)
+
+# Step 5: Plot with custom facet titles
+source2 <- ggplot(df_income_yearly, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = scales::percent(prop, accuracy = 1)),
+            vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  labs(
+    title = "Income Share by Source and Year",
+    x = "Income Source",
+    y = "Proportion of Reported Income",
+    fill = "Income Source"
+  ) +
+  facet_wrap(~ year, labeller = labeller(year = facet_labels)) +
+  theme_minimal() +
+theme(
+  legend.position = "none",
+  axis.text.x = element_text(angle = 45, hjust = 1)
+)
+
+
+(source1 / source2) +
+  plot_layout(heights = c(1, 2)) +
+  plot_annotation(
+    title = "Household Income Sources Across Fish Forever Countries and Years",
+    theme = theme(
+      plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20))
+    )
+  )
+```
+
+```{r fishing-farming-composition-ff, fig.width=12, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# Step 1: Define is_fisher and is_farmer nationally
+df_national <- merged_hhs %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) # Take out all the columns that do not add to 100!!
+  
+  
+df_national <- df_national %>%
+  mutate(across(starts_with("g4_hh_average_income_source_"), ~ as.numeric(.))) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# --- WHOLE POPULATION PIE ---
+df_full <- df_national %>%
+  mutate(
+    group = if_else(is_fisher, "Fishers", "Non-Fishers")
+  ) %>%
+  count(group) %>%
+  mutate(
+    prop = n / sum(n),
+    label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+  )
+
+n_total <- sum(df_full$n)
+
+pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("All Households (n = ", formatC(n_total, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12),
+    legend.position = "none"
+  )
+
+# --- FISHING POPULATION PIE ---
+df_fishers <- df_national %>%
+  filter(is_fisher) %>%
+  mutate(
+    group = if_else(is_farmer, "Fishers who also farm", "Fishers only")
+  ) %>%
+  count(group) %>%
+  mutate(
+    prop = n / sum(n),
+    label = paste0(group, "\n", scales::percent(prop, accuracy = 1))
+  )
+
+n_fishers <- sum(df_fishers$n)
+
+pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Households (n = ", formatC(n_fishers, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 12),
+    legend.position = "none"
+  )
+
+# --- Combine and display ---
+pie_plot1 <- ggdraw() +
+  draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +         
+  draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+# Step 1: Prepare data
+df_national <- merged_hhs %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) %>%
+  mutate(across(starts_with("g4_hh_average_income_source_"), ~ as.numeric(.))) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# Step 2: Classify group
+df_grouped <- df_national %>%
+  mutate(
+    group = case_when(
+      is_fisher & is_farmer ~ "Fishers who also farm",
+      is_fisher & !is_farmer ~ "Fishers only",
+      TRUE ~ "Non-Fishers"
+    ),
+    year = as.character(year)
+  )
+
+# Step 3: Count and calculate proportions
+df_bar <- df_grouped %>%
+  count(year, group) %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+# Step 4: Horizontal stacked bar plot
+bar_plot1 <- ggplot(df_bar, aes(x = fct_rev(year), y = n, fill = group)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(
+  aes(label = paste0(percent(prop, accuracy = 1), " (",scales::comma(n) , ")")),
+  position = position_fill(vjust = 0.5),
+  color = "black", size = 4
+  ) +
+  scale_fill_manual(values = c(
+    "Fishers only" = "#6baed6",
+    "Fishers who also farm" = "#B2DF8A",
+    "Non-Fishers" = "#fb6a4a"
+  )) +
+  coord_flip() +
+  labs(
+    title = "Household Group Composition by Year",
+    x = NULL,
+    y = "Proportion",
+    fill = NULL
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text = element_text(size = 10),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+
+(pie_plot1 / bar_plot1) +
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "Composition of Fishing and Farming Households in Fish Forever Surveys",
+    theme = theme(
+      plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20))
+    )
+  )
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Brazil
+
+```{r household-income-sources-bra, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Brazil
+merged_hhs_bra <- merged_hhs %>%
+  filter(g1_country == "BRA") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100)
+
+n_bra_total <- nrow(merged_hhs_bra)
+
+# Total income share
+df_income_bra_total <- merged_hhs_bra %>%
+  select(all_of(income_cols)) %>%
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop))
+
+df_income_bra_total$source <- factor(df_income_bra_total$source, levels = df_income_bra_total$source)
+
+ordered_colors_bra <- source_colors[names(source_colors) %in% levels(df_income_bra_total$source)]
+ordered_colors_bra <- ordered_colors_bra[match(levels(df_income_bra_total$source), names(ordered_colors_bra))]
+
+legend_labels_bra <- paste0(levels(df_income_bra_total$source), " (", percent(df_income_bra_total$prop, accuracy = 1), ")")
+
+# Plot 1
+income_bra_agg <- ggplot(df_income_bra_total, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = ordered_colors_bra, labels = legend_labels_bra) +
+  labs(
+    title = paste0("Aggregated Income Share by Source (Brazil, n = ", comma(n_bra_total), ")"),
+    x = "", y = "Proportion of Reported Income Sources", fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Yearly income share
+df_income_bra_year <- merged_hhs_bra %>%
+  select(year, all_of(income_cols)) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total / sum(total)) %>%
+  ungroup()
+
+df_income_bra_year$source <- factor(df_income_bra_year$source, levels = names(source_colors))
+
+survey_counts_bra <- merged_hhs_bra %>% count(year, name = "n")
+facet_labels_bra <- setNames(
+  paste0("Year ", survey_counts_bra$year, " (n = ", formatC(survey_counts_bra$n, format = "d", big.mark = ","), ")"),
+  survey_counts_bra$year
+)
+
+# Plot 2
+income_bra_yearly <- ggplot(df_income_bra_year, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  facet_wrap(~ year, labeller = labeller(year = facet_labels_bra)) +
+  labs(
+    title = "Income Share by Source and Year in Brazil",
+    x = "Income Source", y = "Proportion of Reported Income"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine
+(income_bra_agg / income_bra_yearly) +
+  plot_layout(heights = c(1, 2)) +
+  plot_annotation(
+    title = "Household Income Sources in Brazil",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+```{r fishing-farming-composition-bra, fig.width=12, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Brazil
+df_brazil <- merged_hhs %>%
+  filter(g1_country == "BRA") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) %>%
+  mutate(across(starts_with("g4_hh_average_income_source_"), ~ as.numeric(.))) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# Pie: All Households
+df_full <- df_brazil %>%
+  mutate(group = if_else(is_fisher, "Fishers", "Non-Fishers")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_total <- sum(df_full$n)
+
+pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("All Households in Brazil (n = ", formatC(n_total, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Pie: Fishing Households
+df_fishers <- df_brazil %>%
+  filter(is_fisher) %>%
+  mutate(group = if_else(is_farmer, "Fishers who also farm", "Fishers only")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_fishers <- sum(df_fishers$n)
+
+pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Households in Brazil (n = ", formatC(n_fishers, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Combine pies
+pie_bra <- ggdraw() +
+  draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +         
+  draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+# Bar: Composition by Year
+df_bar_bra <- df_brazil %>%
+  mutate(
+    group = case_when(
+      is_fisher & is_farmer ~ "Fishers who also farm",
+      is_fisher & !is_farmer ~ "Fishers only",
+      TRUE ~ "Non-Fishers"
+    ),
+    year = as.character(year)
+  ) %>%
+  count(year, group) %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+bar_bra <- ggplot(df_bar_bra, aes(x = fct_rev(year), y = n, fill = group)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(
+    aes(label = paste0(percent(prop, accuracy = 1), " (", comma(n), ")")),
+    position = position_fill(vjust = 0.5),
+    color = "black", size = 4
+  ) +
+  scale_fill_manual(values = c(
+    "Fishers only" = "#6baed6",
+    "Fishers who also farm" = "#B2DF8A",
+    "Non-Fishers" = "#fb6a4a"
+  )) +
+  coord_flip() +
+  labs(
+    title = "Household Group Composition by Year in Brazil",
+    x = NULL, y = "Proportion", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10), plot.title = element_text(hjust = 0.5))
+
+# Combine pie and bar
+(pie_bra / bar_bra) +
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "Composition of Fishing and Farming Households in Brazil",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Honduras
+
+```{r household-income-sources-hon, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Honduras
+merged_hhs_hnd <- merged_hhs %>%
+  filter(g1_country == "HND") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100)
+
+n_hnd_total <- nrow(merged_hhs_hnd)
+
+# Total income share
+df_income_hnd_total <- merged_hhs_hnd %>%
+  select(all_of(income_cols)) %>%
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop))
+
+df_income_hnd_total$source <- factor(df_income_hnd_total$source, levels = df_income_hnd_total$source)
+
+ordered_colors_hnd <- source_colors[names(source_colors) %in% levels(df_income_hnd_total$source)]
+ordered_colors_hnd <- ordered_colors_hnd[match(levels(df_income_hnd_total$source), names(ordered_colors_hnd))]
+
+legend_labels_hnd <- paste0(levels(df_income_hnd_total$source), " (", percent(df_income_hnd_total$prop, accuracy = 1), ")")
+
+# Plot 1
+income_hnd_agg <- ggplot(df_income_hnd_total, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = ordered_colors_hnd, labels = legend_labels_hnd) +
+  labs(
+    title = paste0("Aggregated Income Share by Source (Honduras, n = ", comma(n_hnd_total), ")"),
+    x = "", y = "Proportion of Reported Income Sources", fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Yearly income share
+df_income_hnd_year <- merged_hhs_hnd %>%
+  select(year, all_of(income_cols)) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total / sum(total)) %>%
+  ungroup()
+
+df_income_hnd_year$source <- factor(df_income_hnd_year$source, levels = names(source_colors))
+
+survey_counts_hnd <- merged_hhs_hnd %>% count(year, name = "n")
+facet_labels_hnd <- setNames(
+  paste0("Year ", survey_counts_hnd$year, " (n = ", formatC(survey_counts_hnd$n, format = "d", big.mark = ","), ")"),
+  survey_counts_hnd$year
+)
+
+# Plot 2
+income_hnd_yearly <- ggplot(df_income_hnd_year, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  facet_wrap(~ year, labeller = labeller(year = facet_labels_hnd)) +
+  labs(
+    title = "Income Share by Source and Year in Honduras",
+    x = "Income Source", y = "Proportion of Reported Income"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine plots
+(income_hnd_agg / income_hnd_yearly) +
+  plot_layout(heights = c(1, 2)) +
+  plot_annotation(
+    title = "Household Income Sources in Honduras",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+```{r fishing-farming-composition-hon, fig.width=12, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Honduras
+df_honduras <- merged_hhs %>%
+  filter(g1_country == "HND") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) %>%
+  mutate(across(starts_with("g4_hh_average_income_source_"), ~ as.numeric(.))) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# Pie: All Households
+df_full <- df_honduras %>%
+  mutate(group = if_else(is_fisher, "Fishers", "Non-Fishers")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_total <- sum(df_full$n)
+
+pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("All Households in Honduras (n = ", formatC(n_total, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Pie: Fishing Households
+df_fishers <- df_honduras %>%
+  filter(is_fisher) %>%
+  mutate(group = if_else(is_farmer, "Fishers who also farm", "Fishers only")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_fishers <- sum(df_fishers$n)
+
+pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Households in Honduras (n = ", formatC(n_fishers, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Combine pies
+pie_hnd <- ggdraw() +
+  draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +         
+  draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+# Bar: Composition by Year
+df_bar_hnd <- df_honduras %>%
+  mutate(
+    group = case_when(
+      is_fisher & is_farmer ~ "Fishers who also farm",
+      is_fisher & !is_farmer ~ "Fishers only",
+      TRUE ~ "Non-Fishers"
+    ),
+    year = as.character(year)
+  ) %>%
+  count(year, group) %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+bar_hnd <- ggplot(df_bar_hnd, aes(x = fct_rev(year), y = n, fill = group)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(
+    aes(label = paste0(percent(prop, accuracy = 1), " (", comma(n), ")")),
+    position = position_fill(vjust = 0.5),
+    color = "black", size = 4
+  ) +
+  scale_fill_manual(values = c(
+    "Fishers only" = "#6baed6",
+    "Fishers who also farm" = "#B2DF8A",
+    "Non-Fishers" = "#fb6a4a"
+  )) +
+  coord_flip() +
+  labs(
+    title = "Household Group Composition by Year in Honduras",
+    x = NULL, y = "Proportion", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10), plot.title = element_text(hjust = 0.5))
+
+# Combine pie and bar
+(pie_hnd / bar_hnd) +
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "Composition of Fishing and Farming Households in Honduras",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Indonesia
+
+```{r household-income-sources-ind, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Indonesia
+merged_hhs_idn <- merged_hhs %>%
+  filter(!(g1_country == "IDN" & year == 2025))
+
+merged_hhs_idn <- merged_hhs_idn %>%
+  filter(g1_country == "IDN") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100)
+
+n_idn_total <- nrow(merged_hhs_idn)
+
+# Total income share
+df_income_idn_total <- merged_hhs_idn %>%
+  select(all_of(income_cols)) %>%
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop))
+
+df_income_idn_total$source <- factor(df_income_idn_total$source, levels = df_income_idn_total$source)
+
+ordered_colors_idn <- source_colors[names(source_colors) %in% levels(df_income_idn_total$source)]
+ordered_colors_idn <- ordered_colors_idn[match(levels(df_income_idn_total$source), names(ordered_colors_idn))]
+
+legend_labels_idn <- paste0(levels(df_income_idn_total$source), " (", percent(df_income_idn_total$prop, accuracy = 1), ")")
+
+# Plot 1
+income_idn_agg <- ggplot(df_income_idn_total, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = ordered_colors_idn, labels = legend_labels_idn) +
+  labs(
+    title = paste0("Aggregated Income Share by Source (Indonesia, n = ", comma(n_idn_total), ")"),
+    x = "", y = "Proportion of Reported Income Sources", fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Yearly income share
+df_income_idn_year <- merged_hhs_idn %>%
+  select(year, all_of(income_cols)) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total / sum(total)) %>%
+  ungroup()
+
+df_income_idn_year$source <- factor(df_income_idn_year$source, levels = names(source_colors))
+
+survey_counts_idn <- merged_hhs_idn %>% count(year, name = "n")
+facet_labels_idn <- setNames(
+  paste0("Year ", survey_counts_idn$year, " (n = ", formatC(survey_counts_idn$n, format = "d", big.mark = ","), ")"),
+  survey_counts_idn$year
+)
+
+# Plot 2
+income_idn_yearly <- ggplot(df_income_idn_year, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  facet_wrap(~ year, labeller = labeller(year = facet_labels_idn)) +
+  labs(
+    title = "Income Share by Source and Year in Indonesia",
+    x = "Income Source", y = "Proportion of Reported Income"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine
+(income_idn_agg / income_idn_yearly) +
+  plot_layout(heights = c(1, 2)) +
+  plot_annotation(
+    title = "Household Income Sources in Indonesia",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+```{r fishing-farming-composition-ind, fig.width=12, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Indonesia
+df_idn <- merged_hhs %>%
+  filter(!(g1_country == "IDN" & year == 2025))
+  
+df_idn <- df_idn %>%
+  filter(g1_country == "IDN") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) %>%
+  mutate(across(starts_with("g4_hh_average_income_source_"), ~ as.numeric(.))) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# Pie: All Households
+df_full <- df_idn %>%
+  mutate(group = if_else(is_fisher, "Fishers", "Non-Fishers")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_total <- sum(df_full$n)
+
+pie1 <- ggplot(df_full, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("All Households in Indonesia (n = ", formatC(n_total, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Pie: Fishing Households
+df_fishers <- df_idn %>%
+  filter(is_fisher) %>%
+  mutate(group = if_else(is_farmer, "Fishers who also farm", "Fishers only")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_fishers <- sum(df_fishers$n)
+
+pie2 <- ggplot(df_fishers, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Households in Indonesia (n = ", formatC(n_fishers, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Combine pies
+pie_idn <- ggdraw() +
+  draw_plot(pie1, x = -0.2, y = 0, width = 1, height = 1) +         
+  draw_plot(pie2, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+# Bar: Composition by Year
+df_bar_idn <- df_idn %>%
+  mutate(
+    group = case_when(
+      is_fisher & is_farmer ~ "Fishers who also farm",
+      is_fisher & !is_farmer ~ "Fishers only",
+      TRUE ~ "Non-Fishers"
+    ),
+    year = as.character(year)
+  ) %>%
+  count(year, group) %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+bar_idn <- ggplot(df_bar_idn, aes(x = fct_rev(year), y = n, fill = group)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(
+    aes(label = paste0(percent(prop, accuracy = 1), " (", comma(n), ")")),
+    position = position_fill(vjust = 0.5),
+    color = "black", size = 4
+  ) +
+  scale_fill_manual(values = c(
+    "Fishers only" = "#6baed6",
+    "Fishers who also farm" = "#B2DF8A",
+    "Non-Fishers" = "#fb6a4a"
+  )) +
+  coord_flip() +
+  labs(
+    title = "Household Group Composition by Year in Indonesia",
+    x = NULL, y = "Proportion", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10), plot.title = element_text(hjust = 0.5))
+
+# Combine pie and bar
+(pie_idn / bar_idn) +
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "Composition of Fishing and Farming Households in Indonesia",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Mozambique
+
+```{r household-income-sources-moz, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Mozambique
+merged_hhs_moz <- merged_hhs %>%
+  filter(g1_country == "MOZ") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100)
+
+n_moz_total <- nrow(merged_hhs_moz)
+
+# Total income share
+df_income_moz_total <- merged_hhs_moz %>%
+  select(all_of(income_cols)) %>%
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop))
+
+df_income_moz_total$source <- factor(df_income_moz_total$source, levels = df_income_moz_total$source)
+
+ordered_colors_moz <- source_colors[names(source_colors) %in% levels(df_income_moz_total$source)]
+ordered_colors_moz <- ordered_colors_moz[match(levels(df_income_moz_total$source), names(ordered_colors_moz))]
+
+legend_labels_moz <- paste0(levels(df_income_moz_total$source), " (", percent(df_income_moz_total$prop, accuracy = 1), ")")
+
+# Plot 1
+income_moz_agg <- ggplot(df_income_moz_total, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = ordered_colors_moz, labels = legend_labels_moz) +
+  labs(
+    title = paste0("Aggregated Income Share by Source (Mozambique, n = ", comma(n_moz_total), ")"),
+    x = "", y = "Proportion of Reported Income Sources", fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Yearly income share
+df_income_moz_year <- merged_hhs_moz %>%
+  select(year, all_of(income_cols)) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total / sum(total)) %>%
+  ungroup()
+
+df_income_moz_year$source <- factor(df_income_moz_year$source, levels = names(source_colors))
+
+survey_counts_moz <- merged_hhs_moz %>% count(year, name = "n")
+facet_labels_moz <- setNames(
+  paste0("Year ", survey_counts_moz$year, " (n = ", formatC(survey_counts_moz$n, format = "d", big.mark = ","), ")"),
+  survey_counts_moz$year
+)
+
+# Plot 2
+income_moz_yearly <- ggplot(df_income_moz_year, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  facet_wrap(~ year, labeller = labeller(year = facet_labels_moz)) +
+  labs(
+    title = "Income Share by Source and Year in Mozambique",
+    x = "Income Source", y = "Proportion of Reported Income"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine plots
+(income_moz_agg / income_moz_yearly) +
+  plot_layout(heights = c(1, 2)) +
+  plot_annotation(
+    title = "Household Income Sources in Mozambique",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+
+```
+
+```{r fishing-farming-composition-moz, fig.width=12, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# --- COMPOSITION PLOTS (Fishers/Farmers) ---
+
+# Recalculate with fishing/farming indicators
+df_moz <- merged_hhs %>%
+  filter(g1_country == "MOZ") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+        coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# Pie: All Households
+df_full_moz <- df_moz %>%
+  mutate(group = if_else(is_fisher, "Fishers", "Non-Fishers")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_total_moz <- sum(df_full_moz$n)
+
+pie1_moz <- ggplot(df_full_moz, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("All Households in Mozambique (n = ", formatC(n_total_moz, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Pie: Fishing Households
+df_fishers_moz <- df_moz %>%
+  filter(is_fisher) %>%
+  mutate(group = if_else(is_farmer, "Fishers who also farm", "Fishers only")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", scales::percent(prop, accuracy = 1)))
+
+n_fishers_moz <- sum(df_fishers_moz$n)
+
+pie2_moz <- ggplot(df_fishers_moz, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Households in Mozambique (n = ", formatC(n_fishers_moz, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Combine pies
+pie_moz <- ggdraw() +
+  draw_plot(pie1_moz, x = -0.2, y = 0, width = 1, height = 1) +
+  draw_plot(pie2_moz, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+# Bar: Composition by Year
+df_bar_moz <- df_moz %>%
+  mutate(
+    group = case_when(
+      is_fisher & is_farmer ~ "Fishers who also farm",
+      is_fisher & !is_farmer ~ "Fishers only",
+      TRUE ~ "Non-Fishers"
+    ),
+    year = as.character(year)
+  ) %>%
+  count(year, group) %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+bar_moz <- ggplot(df_bar_moz, aes(x = fct_rev(year), y = n, fill = group)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(
+    aes(label = paste0(percent(prop, accuracy = 1), " (", comma(n), ")")),
+    position = position_fill(vjust = 0.5),
+    color = "black", size = 4
+  ) +
+  scale_fill_manual(values = c(
+    "Fishers only" = "#6baed6",
+    "Fishers who also farm" = "#B2DF8A",
+    "Non-Fishers" = "#fb6a4a"
+  )) +
+  coord_flip() +
+  labs(
+    title = "Household Group Composition by Year in Mozambique",
+    x = NULL, y = "Proportion", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10), plot.title = element_text(hjust = 0.5))
+
+# Combine pie and bar
+(pie_moz / bar_moz) +
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "Composition of Fishing and Farming Households in Mozambique",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+
+```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# Philippines
+
+```{r household-income-sources-phl, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+# Filter for Philippines
+merged_hhs_phl <- merged_hhs %>%
+  filter(g1_country == "PHL") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100)
+
+n_phl_total <- nrow(merged_hhs_phl)
+
+# Total income share
+df_income_phl_total <- merged_hhs_phl %>%
+  select(all_of(income_cols)) %>%
+  pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(source) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  mutate(prop = total_pct / sum(total_pct)) %>%
+  arrange(desc(prop))
+
+df_income_phl_total$source <- factor(df_income_phl_total$source, levels = df_income_phl_total$source)
+
+ordered_colors_phl <- source_colors[names(source_colors) %in% levels(df_income_phl_total$source)]
+ordered_colors_phl <- ordered_colors_phl[match(levels(df_income_phl_total$source), names(ordered_colors_phl))]
+
+legend_labels_phl <- paste0(levels(df_income_phl_total$source), " (", percent(df_income_phl_total$prop, accuracy = 1), ")")
+
+# Plot 1: Aggregated Income Share
+income_phl_agg <- ggplot(df_income_phl_total, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = ordered_colors_phl, labels = legend_labels_phl) +
+  labs(
+    title = paste0("Aggregated Income Share by Source (Philippines, n = ", comma(n_phl_total), ")"),
+    x = "", y = "Proportion of Reported Income Sources", fill = "Income Source"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "right", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Plot 2: Yearly income share
+df_income_phl_year <- merged_hhs_phl %>%
+  select(year, all_of(income_cols)) %>%
+  pivot_longer(cols = all_of(income_cols), names_to = "source", values_to = "income_pct") %>%
+  filter(!is.na(income_pct)) %>%
+  mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
+  group_by(year, source) %>%
+  summarise(total = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = total / sum(total)) %>%
+  ungroup()
+
+df_income_phl_year$source <- factor(df_income_phl_year$source, levels = names(source_colors))
+
+survey_counts_phl <- merged_hhs_phl %>% count(year, name = "n")
+facet_labels_phl <- setNames(
+  paste0("Year ", survey_counts_phl$year, " (n = ", formatC(survey_counts_phl$n, format = "d", big.mark = ","), ")"),
+  survey_counts_phl$year
+)
+
+income_phl_yearly <- ggplot(df_income_phl_year, aes(x = source, y = prop, fill = source)) +
+  geom_col(width = 0.8) +
+  geom_text(aes(label = percent(prop, accuracy = 1)), vjust = -0.3, size = 3.5, color = "black") +
+  scale_y_continuous(labels = percent_format(), expand = expansion(mult = c(0, 0.1))) +
+  scale_fill_manual(values = source_colors) +
+  facet_wrap(~ year, labeller = labeller(year = facet_labels_phl)) +
+  labs(
+    title = "Income Share by Source and Year in Philippines",
+    x = "Income Source", y = "Proportion of Reported Income"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 45, hjust = 1))
+
+# Combine income plots
+(income_phl_agg / income_phl_yearly) +
+  plot_layout(heights = c(1, 2)) +
+  plot_annotation(
+    title = "Household Income Sources in Philippines",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
+
+```{r fishing-farming-composition-phl, fig.width=12, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+
+df_phl <- merged_hhs %>%
+  filter(g1_country == "PHL") %>%
+  mutate(across(all_of(income_cols), ~ as.numeric(.))) %>%
+  mutate(total_income_pct = rowSums(select(., all_of(income_cols)), na.rm = TRUE)) %>%
+  filter(total_income_pct == 100) %>%
+  mutate(across(starts_with("g4_hh_average_income_source_"), ~ as.numeric(.))) %>%
+  mutate(
+    is_fisher = if_else(
+      coalesce(g4_hh_average_income_source_c_income_fishing_artisanal, 0) > 0 |
+      coalesce(g4_hh_average_income_source_j_income_industrial, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    ),
+    is_farmer = if_else(
+      coalesce(g4_hh_average_income_source_a_income_farming, 0) > 0,
+      TRUE, FALSE, missing = FALSE
+    )
+  )
+
+# Pie: All Households
+df_full_phl <- df_phl %>%
+  mutate(group = if_else(is_fisher, "Fishers", "Non-Fishers")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", percent(prop, accuracy = 1)))
+
+n_total_phl <- sum(df_full_phl$n)
+
+pie1_phl <- ggplot(df_full_phl, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 5) +
+  scale_fill_manual(values = c("Fishers" = "#6baed6", "Non-Fishers" = "#fb6a4a")) +
+  labs(title = paste0("All Households in Philippines (n = ", formatC(n_total_phl, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Pie: Fishing Households
+df_fishers_phl <- df_phl %>%
+  filter(is_fisher) %>%
+  mutate(group = if_else(is_farmer, "Fishers who also farm", "Fishers only")) %>%
+  count(group) %>%
+  mutate(prop = n / sum(n), label = paste0(group, "\n", percent(prop, accuracy = 1)))
+
+n_fishers_phl <- sum(df_fishers_phl$n)
+
+pie2_phl <- ggplot(df_fishers_phl, aes(x = "", y = prop, fill = group)) +
+  geom_col(width = 1, color = "white") +
+  coord_polar(theta = "y") +
+  geom_text(aes(label = label), position = position_stack(vjust = 0.5), size = 3.5) +
+  scale_fill_manual(values = c("Fishers only" = "#6baed6", "Fishers who also farm" = "#B2DF8A")) +
+  labs(title = paste0("Fishing Households in Philippines (n = ", formatC(n_fishers_phl, format = "d", big.mark = ","), ")")) +
+  theme_void() +
+  theme(plot.title = element_text(hjust = 0.5, size = 12), legend.position = "none")
+
+# Combine pies
+pie_phl <- ggdraw() +
+  draw_plot(pie1_phl, x = -0.2, y = 0, width = 1, height = 1) +
+  draw_plot(pie2_phl, x = 0.44, y = 0.1, width = 0.6, height = 0.6)
+
+# Bar: Composition by Year
+df_bar_phl <- df_phl %>%
+  mutate(
+    group = case_when(
+      is_fisher & is_farmer ~ "Fishers who also farm",
+      is_fisher & !is_farmer ~ "Fishers only",
+      TRUE ~ "Non-Fishers"
+    ),
+    year = as.character(year)
+  ) %>%
+  count(year, group) %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n)) %>%
+  ungroup()
+
+bar_phl <- ggplot(df_bar_phl, aes(x = fct_rev(year), y = n, fill = group)) +
+  geom_col(position = "fill", width = 0.7) +
+  geom_text(
+    aes(label = paste0(percent(prop, accuracy = 1), " (", comma(n), ")")),
+    position = position_fill(vjust = 0.5),
+    color = "black", size = 4
+  ) +
+  scale_fill_manual(values = c(
+    "Fishers only" = "#6baed6",
+    "Fishers who also farm" = "#B2DF8A",
+    "Non-Fishers" = "#fb6a4a"
+  )) +
+  coord_flip() +
+  labs(
+    title = "Household Group Composition by Year in Philippines",
+    x = NULL, y = "Proportion", fill = NULL
+  ) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 10), plot.title = element_text(hjust = 0.5))
+
+# Combine pie and bar
+(pie_phl / bar_phl) +
+  plot_layout(heights = c(1.5, 1)) +
+  plot_annotation(
+    title = "Composition of Fishing and Farming Households in Philippines",
+    theme = theme(plot.title = element_text(face = "bold", hjust = 0, margin = margin(b = 20)))
+  )
+```
