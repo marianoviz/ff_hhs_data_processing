@@ -52,7 +52,7 @@ library(kableExtra)
 
 # Summary
 
-This short report analyzes household income sources and presents a breakdown of household types (fishers only, fishers who also farm, and non-fishers) across Fish Forever countries, disaggregated by year. The findings highlight the diversity of livelihood strategies across regions, although artisanal fishing consistently ranks as the top income source, with farming regularly appearing among the top three.
+This short report analyzes household income sources and presents a breakdown of household types (fishers only, fishers who also farm, and non-fishers) across Fish Forever countries, disaggregated by year. The findings highlight the diversity of livelihood strategies across regions, although artisanal fishing consistently ranks as the top income source, with farming regularly appearing among the top four.
 
 
 ```{r, warning=FALSE, message=FALSE, echo=FALSE}
@@ -254,7 +254,7 @@ province_to_country <- level_1 %>%
   select(label, country) %>%
   distinct()
 
-# Step 2: Fill missing g1_country for 2025 using a left join
+# Step 2: Fill missing g1_country for 2024 and 2025
 merged_hhs <- merged_hhs %>%
   left_join(
     province_to_country,
@@ -262,7 +262,7 @@ merged_hhs <- merged_hhs %>%
   ) %>%
   mutate(
     g1_country = if_else(
-      year == 2025 & is.na(g1_country),
+      year %in% c(2024, 2025) & is.na(g1_country),
       country,
       g1_country
     )

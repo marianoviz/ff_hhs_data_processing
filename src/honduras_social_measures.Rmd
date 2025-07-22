@@ -1,5 +1,5 @@
 ---
-title: "Social Measures in Honduras: Data Insights and Limitations"
+title: "Before–After Analysis of Social Measures in Honduras"
 author: "Mariano Viz"
 date: "2025-07-08"
 output:
@@ -44,6 +44,19 @@ library(kableExtra)
 library(stringdist)
 library(lubridate)
 ```
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# 1. Summary
+
+This report presents the results of an exploratory analysis and a Before–After Standardized Effect Size Analysis conducted to evaluate key social measures in Honduras (Trust, Social Cohesion, and Self-Efficacy) using data from the FF HHS. The objective was to find insights into how these social dynamics are evolving over time and to assess whether FF interventions may be driving improvements in these areas.
+
+Overall, the findings reflect mixed results and a lack of clear trends, making it difficult to extract broad, meaningful conclusions about social change across communities.
+While some communities demonstrated positive shifts, others experienced declines or no significant changes.
 
 ```{r, warning=FALSE, message=FALSE, echo=FALSE}
 # Getting merged_hhs dataset: Basic Script + Correction for kobo_4 col names in Bahasa
@@ -229,27 +242,56 @@ merged_hhs <- merged_hhs %>%
     merged_hhs_municipality = ifelse(is.na(g1_municipality), g1_local, g1_municipality)
   )
 
+
+# Standardised countries
+merged_hhs <- merged_hhs %>%
+  mutate(g1_country = case_when(
+    g1_country %in% c("FSM", "HND", "BRA", "IDN", "PLW", "GTM", "MOZ", "PHL") ~ g1_country,
+    g1_country == "Indonesia" ~ "IDN",
+    is.na(g1_country) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Step 1: Create a lookup table from level_1
+province_to_country <- level_1 %>%
+  select(label, country) %>%
+  distinct()
+
+# Step 2: Fill missing g1_country for 2024 and 2025
+merged_hhs <- merged_hhs %>%
+  left_join(
+    province_to_country,
+    by = c("merged_hhs_province" = "label")
+  ) %>%
+  mutate(
+    g1_country = if_else(
+      year %in% c(2024, 2025) & is.na(g1_country),
+      country,
+      g1_country
+    )
+  ) %>%
+  select(-country)  # remove helper column from join
 ```
 
-# 1. Summary
-
-This report presents an exploratory analysis of social measures in Honduran communities participating in the Fish Forever (FF) program, focusing on trust, social cohesion, self-efficacy, and savings club participation.
-Due to key data limitations (absence of a control population, inconsistent temporal coverage at the community level, and low participation in savings clubs) the original objective of assessing program-driven change over time was revised.
-The analysis instead examines whether the duration of FF engagement is associated with current levels of the selected social measures.
-Regression results show no statistically significant relationships, with the exception of a marginal positive trend in perceived community ability to manage fisheries.
-Overall, the findings highlight critical limitations in the current dataset and point to the need for a more aligned and consistent sampling design if future survey efforts are intended to track change over time.
+<br>
 
 ------------------------------------------------------------------------
 
-# 2. Original Objective
+<br>
+
+# 2. Objective
 
 Request from the FF leadership:
 
 > ***"Find insights on social measures in Honduras (trust, social cohesion, self-efficacy). Specifically, assess if Fish Forever interventions are driving increases in these measures and if there are links to savings club participation"***
 
+<br>
+
 ------------------------------------------------------------------------
 
-# 3. Exploratory Anlaysis
+<br>
+
+# 3. Exploratory Analaysis
 
 The exploratory analysis is organized into two sections.
 The first, **Available HHS Data**, presents tables that summarize the household survey coverage in Honduras, disaggregated by province, municipality, and community across multiple years.
@@ -258,6 +300,7 @@ The second, **Selected HHS Questions**, examines the response status and distrib
 ## Available HHS Data
 
 ```{r}
+
 #Available Data
 merged_hhs_hon <- merged_hhs %>% 
   filter(g1_country == "HND")
@@ -366,26 +409,71 @@ community_years_surveyed <- table_community %>%
   arrange(merged_hhs_province, merged_hhs_municipality)
 
 # Create the formatted table
-community_years_surveyed %>%
+# community_years_surveyed %>%
+#   rename(
+#     Province = merged_hhs_province,
+#     Municipality = merged_hhs_municipality,
+#     Community = merged_hhs_community
+#   ) %>%
+#   kable("html", caption = "Years Surveyed per Community (Count and List of Years)") %>%
+#   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
+
+
+# Identify communities surveyed in more than one year
+multi_year_communities <- table_community %>%
+  group_by(merged_hhs_province, merged_hhs_municipality, merged_hhs_community) %>%
+  summarise(n_years = n_distinct(year), .groups = "drop") %>%
+  filter(n_years > 1)
+
+# Join back to table_community to get survey counts by year
+community_multi_year_surveys <- table_community %>%
+  inner_join(multi_year_communities, 
+             by = c("merged_hhs_province", "merged_hhs_municipality", "merged_hhs_community")) %>%
+  arrange(merged_hhs_province, merged_hhs_municipality, merged_hhs_community, year)
+
+# Prepare data with row numbers
+table_data <- community_multi_year_surveys %>%
   rename(
     Province = merged_hhs_province,
     Municipality = merged_hhs_municipality,
-    Community = merged_hhs_community
+    Community = merged_hhs_community,
+    Year = year,
+    `Number of Surveys` = n_surveys
   ) %>%
-  kable("html", caption = "Years Surveyed per Community (Count and List of Years)") %>%
+  select(Province, Municipality, Community, Year, `Number of Surveys`) %>%
+  arrange(Community, Year) %>%
+  mutate(row_number = row_number())
+
+# Find last row for each community
+break_rows <- table_data %>%
+  group_by(Community) %>%
+  summarise(last_row = max(row_number), .groups = "drop") %>%
+  pull(last_row)
+
+# Create the formatted table
+table_out <- table_data %>%
+  select(-row_number) %>%
+  kbl("html", caption = "Communities Surveyed in Multiple Years with Survey Counts per Year") %>%
   kable_styling(full_width = FALSE, bootstrap_options = c("striped", "hover"))
 
+# Add horizontal separators
+for (row in break_rows) {
+  table_out <- table_out %>%
+    row_spec(row, extra_css = "border-bottom: 2px solid #000;")
+}
+
+# Show final table
+table_out
 ```
 
-Of the four provinces surveyed in Honduras, three have household survey data from more than one year.
-However, one of them (Cortés) includes only a single household surveyed in the second year (2024).
-When disaggregated to the community level, **no community has data for more than one year** (except Bajamar, which appears in both years but with only one household surveyed in 2024).
+**Note**: The communities included in this analysis are those with multiple years of household survey data, as shown in the table above.
+Only communities with at least two distinct survey years and a minimum of 10 valid responses per year were retained, forming the basis for the Before–After Standardized Effect Size Analysis.
 
 ## Selected HHS Questions
 
 To assess the social outcomes intended by FF, we selected a subset of HHS questions that align with the core social measures of interest: Trust, Social Cohesion, Self-Efficacy, and Savings Club Participation.
 This section explores the response status (i.e., answered vs. missing) and the distribution of responses for each selected question.
-The analysis helps us understand both the availability and variability of data, serving as a foundation for the regression-based assessments that follow.
+The analysis helps us understand both the availability and variability of data, serving as a foundation for the Before–After Standardized Effect Size Analysis that follow.
 
 [**Trust**]{.underline}
 
@@ -1756,402 +1844,1109 @@ plot_responses <- df_example %>%
 
 ```
 
-The plots show that several questions have **significant missing data**, indicating they were not included in all household surveys conducted in Honduras.
-Additionally, the plots reveal that **Savings Club Participation is very low** across surveyed communities, limiting the potential to explore meaningful relationships between savings club participation and social measures.
+**Note**: One part of the analysis objective (assessing potential links between FF social outcomes and savings club participation) could not be addressed.
+The plots above indicate that savings club participation was extremely limited across the surveyed sample.
+This low participation restricts our ability to statistically explore relationships between participation and changes in social measures, and limits the strength of any inferences related to this specific program component.
+
+<br>
 
 ------------------------------------------------------------------------
 
-# 4. Limitations and Updated Objective
+<br>
 
-The original objective of this analysis, as outlined in Section 2, was to: *“Find insights on social measures in Honduras (trust, social cohesion, self-efficacy). Specifically, assess if Fish Forever interventions are driving increases in these measures and if there are links to savings club participation.”*
+# 4. Before-After Standardized Effect Size Analysis
 
-However, meeting this objective is not feasible due to three key limitations:
+## Methodology
 
-1.  **Lack of a Counterfactual (Control Population):** The absence of non-intervention (control) communities prevents us from isolating the effects of FF on social measures.
-    Any observed changes could be influenced by other factors such as economic shifts, governance changes, climate variability, or broader social dynamics; making attribution to FF alone unreliable.
+A Before–After Standardized Effect Size Analysis was selected to assess changes in key social measures (Trust, Social Cohesion, and Self-Efficacy) across multiple coastal communities in Honduras, using data from the FF HHS. This approach was chosen to explore whether these measures have changed over time in communities where FF interventions have been implemented.
 
-2.  **Insufficient Temporal and Spatial Data Consistency**: As shown in the tables above, no community has been surveyed in multiple years, making it impossible to assess changes over time at the community level.
-    While a few provinces have been surveyed in more than one year, aggregating to that level would likely reflect geographic differences rather than true temporal change driven by program engagement.
+To quantify change, we applied a before–after regression method that compares average responses from the earliest and most recent survey years available for each site.
+Survey responses were standardized by converting ordinal and binary variables to a continuous 0–100 scale, enabling consistent comparison across indicators.
 
-3.  **Low Savings Club Participation**: The plots above show that savings club participation is extremely limited across the surveyed sample.
-    This lack of representation restricts the statistical power to explore meaningful relationships between participation and social outcomes.
+The analysis was limited to communities with at least two distinct survey years and a minimum of 10 valid (non-missing) responses per year for each question of interest.
+After applying these criteria, the final dataset included only communities with HHS data collected in either 2019 or 2021 (as baseline) and 2024 (as follow-up), resulting in before–after time spans of 3 or 5 years, depending on the site.
 
-Given these limitations, the revised objective of the analysis is to:
+We used robust linear regression models with heteroscedasticity-consistent standard errors to estimate standardized effect sizes (β₁) for each question.
+These effect sizes represent the average change in responses between the “before” and “after” periods.
+Each estimate is accompanied by a 95% confidence interval and a significance test, allowing identification of statistically significant positive or negative changes.
+Results are visualized by question and by community to support comparison across sites and social dimensions.
 
-> ***“Examine the relationship between the duration of Fish Forever’s engagement in communities and key social measures (trust, social cohesion, self-efficacy).”***
+<br>
 
-This reframed objective focuses on cross-sectional associations between engagement length and current perceptions, rather than attempting to assess change or causal impact.
+## Interpretation of Effect Sizes (β₁)
 
-------------------------------------------------------------------------
+-   **For Ordinal Questions**: The effect size (β₁) represents the average change in responses on a 0-100 scale between the “before” and “after” periods.
+    A positive effect size indicates an increase in the perception or agreement level, while a negative effect size suggests a decline.
 
-# 5. Analysis of FF Engagement Duration and Social Measures
+-   **For Binary Questions**: The effect size (β₁) reflects the change in the probability of a “Yes” response in the after period.
+    Positive values imply an increase in the probability of a “Yes” response, while negative values indicate a decline.
+
+<br>
+
+## Limitations
+
+A key limitation of this analysis stems from the underlying data.
+Specifically, the absence of a control group (i.e., communities not exposed to FF interventions).
+Without a counterfactual, it is not possible to determine whether observed changes in social measures are attributable to the program or to other external factors such as economic shifts, governance changes, climate variability, or broader social dynamics.
+As a result, **the findings should be interpreted as descriptive of change over time, rather than as evidence of direct program impact**.
+
+<br>
+
+## Results
+
+### a. [Trust]{.underline}
+
+```{r trust, fig.width=14, fig.height=12, dpi=300, message=FALSE, warning=FALSE}
+
+# Trust question selection
+trust_var <- "g8_trust_community"  
+
+# Define Likert-to-100 mapping
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+# Prepare data
+trust_df <- merged_hhs_hon %>%
+  select(community, year, trust = all_of(trust_var)) %>%
+  filter(trust %in% names(likert_map)) %>%
+  mutate(trust_score = recode(trust, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10) %>%  # Drop year-community combos with fewer than 10
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) > 1) %>%  # Drop communities with only 1 year
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run robust regression per community
+trust_model <- trust_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(trust_score ~ period, data = .)
+    robust_se <- coeftest(model, vcov = vcovHC(model, type = "HC1"))
+    tidy(robust_se) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    fill_color = case_when(
+      significance == "Positive (p < 0.05)" ~ "#6baed6",
+      significance == "Negative (p < 0.05)" ~ "#fb6a4a",
+      TRUE ~ "white"
+    )
+  )
+
+# Plot
+tru_1 <- ggplot(trust_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Community Trust"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+# Trust question selection
+trust_var <- "g8_trust_community_neighbors"
+
+# Define Likert-to-100 mapping
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+# Prepare data
+trust_df <- merged_hhs_hon %>%
+  select(community, year, trust = all_of(trust_var)) %>%
+  filter(trust %in% names(likert_map)) %>%
+  mutate(trust_score = recode(trust, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10) %>%  # Drop year-community combos with fewer than 10
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) > 1) %>%  # Drop communities with only 1 year
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run robust regression per community
+trust_model <- trust_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(trust_score ~ period, data = .)
+    robust_se <- coeftest(model, vcov = vcovHC(model, type = "HC1"))
+    tidy(robust_se) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    fill_color = case_when(
+      significance == "Positive (p < 0.05)" ~ "#6baed6",
+      significance == "Negative (p < 0.05)" ~ "#fb6a4a",
+      TRUE ~ "white"
+    )
+  )
+
+# Plot
+tru_2 <- ggplot(trust_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Neighbors Trust"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+
+# Trust question selection
+trust_var <- "g8_trust_local_decision"
+
+# Define Likert-to-100 mapping
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+# Prepare data
+trust_df <- merged_hhs_hon %>%
+  select(community, year, trust = all_of(trust_var)) %>%
+  filter(trust %in% names(likert_map)) %>%
+  mutate(trust_score = recode(trust, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10) %>%  # Drop year-community combos with fewer than 10
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) > 1) %>%  # Drop communities with only 1 year
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run robust regression per community
+trust_model <- trust_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(trust_score ~ period, data = .)
+    robust_se <- coeftest(model, vcov = vcovHC(model, type = "HC1"))
+    tidy(robust_se) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    fill_color = case_when(
+      significance == "Positive (p < 0.05)" ~ "#6baed6",
+      significance == "Negative (p < 0.05)" ~ "#fb6a4a",
+      TRUE ~ "white"
+    )
+  )
+
+# Plot
+tru_3 <- ggplot(trust_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Local Decision Makers"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+
+# Trust question selection
+trust_var <- "g8_trust_regional_decision"
+
+# Define Likert-to-100 mapping
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+# Prepare data
+trust_df <- merged_hhs_hon %>%
+  select(community, year, trust = all_of(trust_var)) %>%
+  filter(trust %in% names(likert_map)) %>%
+  mutate(trust_score = recode(trust, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10) %>%  # Drop year-community combos with fewer than 10
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) > 1) %>%  # Drop communities with only 1 year
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run robust regression per community
+trust_model <- trust_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(trust_score ~ period, data = .)
+    robust_se <- coeftest(model, vcov = vcovHC(model, type = "HC1"))
+    tidy(robust_se) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    fill_color = case_when(
+      significance == "Positive (p < 0.05)" ~ "#6baed6",
+      significance == "Negative (p < 0.05)" ~ "#fb6a4a",
+      TRUE ~ "white"
+    )
+  )
+
+# Plot
+tru_4 <- ggplot(trust_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Regional Decision Makers"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+(tru_1 | tru_2) / (tru_3 | tru_4) +
+  plot_annotation(
+    title = "Before–after standardized effect sizes for Trust by Community",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+    )
+  )
+
+```
+
+The figure presents before–after standardized effect sizes (β₁) for four trust-related questions across multiple communities.
+Each subplot corresponds to a distinct dimension of trust:
+
+-   Community Trust: *In general, most people in my area can be trusted to comply with regulations related to coastal fisheries and fisheries.*
+
+-   Neighbors Trust: *Generally speaking, most people in neighboring communities can be trusted.*
+
+-   Local Decision Makers: *Local decision-makers/local authorities can be trusted to make decisions that benefit the community over their own interests.*
+
+-   Regional Decision Makers: *Regional decision-makers/regional authorities can be trusted to make decisions that benefit the community over their own interests.*
+
+Each point represents the estimated effect size for the before–after change in responses to each trust question for a specific community.
+The horizontal lines indicate 95% confidence intervals.
+Point color denotes statistical significance.
+
+[**Key Takeaways**]{.underline}
+
+The analysis of trust-related indicators (Community Trust, Neighbors Trust, Local Decision Makers, and Regional Decision Makers) shows **mixed results across communities, with no consistent trend** emerging across all dimensions.
+
+-   A large number of communities exhibit non-significant changes.
+
+-   Several communities demonstrate significant positive changes in specific dimensions.
+    For example, Moradel, Plan Grande, Jericó, and El Pelícano showed notable gains, especially in trust toward local and regional decision-makers.
+
+-   Conversely, Muchilena, San Martín, and Bajamar stand out for having significant negative changes across most or all trust dimensions.
+
+### b. [Social Cohesion]{.underline}
 
 ```{r}
-program_start <- read_csv(here("data", "fp_level4_program_start.csv"), locale = locale(encoding = "ISO-8859-1"))
+# # 1. Choose one of the Social Cohesion questions
+# sc_var <- "g8_trust_community_emergency"
+# 
+# # Likert-style mapping to 0–100
+# likert_map <- c(
+#   "Strongly disagree" = 0,
+#   "Disagree" = 25,
+#   "Neither agree nor disagree" = 50,
+#   "Agree" = 75,
+#   "Strongly agree" = 100
+# )
+# 
+# # Prepare data (excluding NAs, enforcing ≥10 valid per year, ≥2 years)
+# sc_df <- merged_hhs_hon %>%
+#   select(community, year, sc = all_of(sc_var)) %>%
+#   filter(sc %in% names(likert_map)) %>%
+#   mutate(sc_score = recode(sc, !!!likert_map)) %>%
+#   group_by(community, year) %>%
+#   filter(n() >= 10, sum(!is.na(sc_score)) >= 10) %>%
+#   ungroup() %>%
+#   group_by(community) %>%
+#   filter(n_distinct(year) >= 2) %>%
+#   mutate(period = case_when(
+#     year == min(year) ~ "before",
+#     year == max(year) ~ "after"
+#   )) %>%
+#   filter(!is.na(period)) %>%
+#   ungroup() %>%
+#   mutate(period = factor(period, levels = c("before", "after")))
+# 
+# # Run robust regression per community
+# sc_model <- sc_df %>%
+#   group_by(community) %>%
+#   do({
+#     model <- lm(sc_score ~ period, data = .)
+#     robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+#     tidy(robust) %>%
+#       filter(term == "periodafter") %>%
+#       mutate(
+#         conf.low = estimate - 1.96 * std.error,
+#         conf.high = estimate + 1.96 * std.error
+#       )
+#   }) %>%
+#   ungroup() %>%
+#   mutate(
+#     significance = case_when(
+#       p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+#       p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+#       TRUE ~ "Not Significant"
+#     )
+#   )
+# 
+# # Plot effect sizes
+# ggplot(sc_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+#   geom_point(shape = 21, size = 3, color = "black") +
+#   geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+#   scale_fill_manual(values = c(
+#     "Positive (p < 0.05)" = "forestgreen",
+#     "Negative (p < 0.05)" = "purple",
+#     "Not Significant" = "white"
+#   )) +
+#   coord_flip() +
+#   labs(
+#     x = "Community", y = "Effect Size (β1)",
+#     title = paste("Before–after effect sizes for", sc_var, "by Community"),
+#     fill = "Change"
+#   ) +
+#   theme_minimal()
+# 
+# # 1. Choose one of the Social Cohesion questions
+# sc_var <- "g8_trust_community_emergency"
+# 
+# # Likert-style mapping to 0–100
+# likert_map <- c(
+#   "Strongly disagree" = 0,
+#   "Disagree" = 25,
+#   "Neither agree nor disagree" = 50,
+#   "Agree" = 75,
+#   "Strongly agree" = 100
+# )
+# 
+# # Prepare data (excluding NAs, enforcing ≥10 valid per year, ≥2 years)
+# sc_df <- merged_hhs_hon %>%
+#   select(community, year, sc = all_of(sc_var)) %>%
+#   filter(sc %in% names(likert_map)) %>%
+#   mutate(sc_score = recode(sc, !!!likert_map)) %>%
+#   group_by(community, year) %>%
+#   filter(n() >= 10, sum(!is.na(sc_score)) >= 10) %>%
+#   ungroup() %>%
+#   group_by(community) %>%
+#   filter(n_distinct(year) >= 2) %>%
+#   mutate(period = case_when(
+#     year == min(year) ~ "before",
+#     year == max(year) ~ "after"
+#   )) %>%
+#   filter(!is.na(period)) %>%
+#   ungroup() %>%
+#   mutate(period = factor(period, levels = c("before", "after")))
+# 
+# # Run robust regression per community
+# sc_model <- sc_df %>%
+#   group_by(community) %>%
+#   do({
+#     model <- lm(sc_score ~ period, data = .)
+#     robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+#     tidy(robust) %>%
+#       filter(term == "periodafter") %>%
+#       mutate(
+#         conf.low = estimate - 1.96 * std.error,
+#         conf.high = estimate + 1.96 * std.error
+#       )
+#   }) %>%
+#   ungroup() %>%
+#   mutate(
+#     significance = case_when(
+#       p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+#       p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+#       TRUE ~ "Not Significant"
+#     )
+#   )
+# 
+# # Plot effect sizes
+# ggplot(sc_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+#   geom_point(shape = 21, size = 3, color = "black") +
+#   geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+#   scale_fill_manual(values = c(
+#     "Positive (p < 0.05)" = "forestgreen",
+#     "Negative (p < 0.05)" = "purple",
+#     "Not Significant" = "white"
+#   )) +
+#   coord_flip() +
+#   labs(
+#     x = "Community", y = "Effect Size (β1)",
+#     title = paste("Before–after effect sizes for", sc_var, "by Community"),
+#     fill = "Change"
+#   ) +
+#   theme_minimal()
 
-program_start <- program_start %>%
-  mutate(level4_name = case_when(
-    level4_name == "Dos Bocas / Brisas del Mar" ~ "Dos Bocas",
-    level4_name == "Omoa casco" ~ "Omoa",
-    level4_name == "Punta Piedra" ~ "Punta de Piedra",
-    level4_name == "Iriona Viejo" ~ "Iriona",
-    level4_name == "Estero / Las Flores" ~ "Las Flores",
-    level4_name == "Santa Rosa Aguan Centro / La Planada" ~ "Santa Rosa Aguan Centro",
-    level4_name == "Vuelta Grande/Fifi/Manguito" ~ "Vuelta Grande",
-    level4_name == "Punta Gorda (JSG)" ~ "Punta Gorda",
-    TRUE ~ level4_name
-  ))
-
-# Duplicate the row where level4_name == "Santa Rosa Aguan Centro"
-duplicate_row <- program_start %>%
-  filter(level4_name == "Santa Rosa Aguan Centro") %>%
-  mutate(level4_name = "La Planada")
-
-# Add it to the program_start dataframe
-program_start <- bind_rows(program_start, duplicate_row)
 
 
-# # Unique names from both datasets
-# hhs_names <- unique(merged_hhs_hon$community)
-# program_names <- unique(program_start$level4_name)
-# # Find names in HHS not present in Program
-# hhs_not_in_program <- setdiff(hhs_names, program_names)
-# hhs_not_in_program
 
-# Add program start to HHS data --> No program start data for Marañones
-merged_hhs_hon <- merged_hhs_hon %>%
-  left_join(
-    program_start %>% select(level4_name, program_start),
-    by = c("community" = "level4_name")
-  )
-
-merged_hhs_hon <- merged_hhs_hon %>% 
-  filter(community != "Marañones")
-
+# Could not fulfill:
+  # - At least two distinct years of household surveys with
+  # - At least 10 non-NA responses to the question in each year
 ```
 
-In this analysis, we explore the potential impact of FF engagement duration on the three critical social measures: Trust, Social Cohesion, and Self-Efficacy.
-Using data collected through HHS across Honduran communities, we assess whether prolonged involvement in the Fish Forever program correlates with improvements in these measures.
-To enable this analysis, we incorporated data on when the program began in each community to calculate the duration of engagement.
-Linear regression models were then used to examine these relationships at the community level, accounting for variations in program duration across different sites.
+```{r social, fig.width=14, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# 1. Choose one of the Social Cohesion questions
+sc_var <- "g8_my_community_ability"
 
-## a. [Trust]{.underline}
+# Likert-style mapping to 0–100
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
 
-```{r display-plots13, fig.width=12, fig.height=8, dpi=300, results='asis'}
-# 1. Setup & Prepare the Data:
+# Prepare data (excluding NAs, enforcing ≥10 valid per year, ≥2 years)
+sc_df <- merged_hhs_hon %>%
+  select(community, year, sc = all_of(sc_var)) %>%
+  filter(sc %in% names(likert_map)) %>%
+  mutate(sc_score = recode(sc, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10, sum(!is.na(sc_score)) >= 10) %>%
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) >= 2) %>%
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
 
-# Convert trust responses to numeric scale
-likert_to_numeric <- function(x) {
-  case_when(
-    x == "Strongly disagree" ~ 1,
-    x == "Disagree" ~ 2,
-    x == "Neither agree nor disagree" ~ 3,
-    x == "Agree" ~ 4,
-    x == "Strongly agree" ~ 5,
-    TRUE ~ NA_real_
+# Run robust regression per community
+sc_model <- sc_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(sc_score ~ period, data = .)
+    robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+    tidy(robust) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    )
   )
+
+# Plot effect sizes
+soc_1 <- ggplot(sc_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Community Ability"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+# Binary mapping
+binary_map <- c(
+  "Yes" = 100,
+  "No" = 0
+)
+
+# Prepare binary data
+binary_df <- merged_hhs_hon %>%
+  select(community, year, sc = g8_fishery_benefit_equal) %>%
+  filter(sc %in% names(binary_map)) %>%
+  mutate(sc_score = recode(sc, !!!binary_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10, sum(!is.na(sc_score)) >= 10) %>%
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) >= 2) %>%
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run regression
+binary_model <- binary_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(sc_score ~ period, data = .)
+    robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+    tidy(robust) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    )
+  )
+
+# Plot
+soc_2 <- ggplot(binary_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = "Fishery Benefit Equality",
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+
+(soc_1 | soc_2) +
+  plot_annotation(
+    title = "Before–after standardized effect sizes for Social Cohesion by Community",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+    )
+  )
+```
+
+The figure presents before–after standardized effect sizes (β₁) for two questions related to social cohesion across multiple communities.
+Each subplot corresponds to a distinct social cohesion:
+
+-   Community Ability: *My community has the ability to manage my fishery effectively to maximize food and profits.*
+
+-   Fishery Benefit Equality: *Do you believe you benefit equally from the fishery as other members of the community?*
+
+Questions on Community Support and Post-Emergency Recovery were excluded from the analysis due to insufficient data.
+Specifically, these questions were not included in one year of the household survey, resulting in fewer than two years with at least 10 responses per community.
+
+Each point represents the estimated effect size for the before–after change in responses to each social cohesion question for a specific community.
+The horizontal lines indicate 95% confidence intervals.
+Point color denotes statistical significance.
+
+[**Key Takeaways**]{.underline}
+
+The analysis of social cohesion indicators (Community Ability and Fishery Benefit Equality) reveals **mixed results**, with Community Ability showing both positive and negative significant changes across communities, while **all significant changes in Fishery Benefit Equality were negative**.
+
+-   A large number of communities exhibit non-significant changes.
+
+-   Community Ability shows mixed results, with no clear overall trend.
+    Significant positive changes were observed in Col. Las Lomas, Jericó, Rio Negro, Capiro, and Cusuna.
+    In contrast, 12 communities (including Bajamar, Guadalupe, San Antonio, Muchilena, and Cocalito) experienced significant negative changes.
+
+-   Fishery Benefit Equality shows a more consistent pattern: all statistically significant changes were negative.
+    Of the 22 communities analyzed, 9 (such as Bajamar, Betulia, San Martín, Cocalito, and El Cayo) showed significant declines in perceived equality of fishery benefits.
+
+### c. [Self Efficacy]{.underline}
+
+```{r self, fig.width=14, fig.height=8, dpi=300, message=FALSE, warning=FALSE}
+# Select which self-efficacy variable to analyze
+sef_var <- "g12_agreement_change_fishing_behavior"
+
+# Define Likert scale to 0–100 mapping
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+# Prepare dataset
+sef_df <- merged_hhs_hon %>%
+  select(community, year, sef = all_of(sef_var)) %>%
+  filter(sef %in% names(likert_map)) %>%
+  mutate(sef_score = recode(sef, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10, sum(!is.na(sef_score)) >= 10) %>%  # Keep only year-community combos with ≥10 non-NA responses
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) >= 2) %>%  # At least 2 survey years with data
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run robust regression by community
+sef_model <- sef_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(sef_score ~ period, data = .)
+    robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+    tidy(robust) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    fill_color = case_when(
+      significance == "Positive (p < 0.05)" ~ "#6baed6",
+      significance == "Negative (p < 0.05)" ~ "#fb6a4a",
+      TRUE ~ "white"
+    )
+  )
+
+# Plot effect sizes
+self_1 <- ggplot(sef_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Change Behavior"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+# Select which self-efficacy variable to analyze
+sef_var <- "g12_agreement_individual_behavior"
+
+# Define Likert scale to 0–100 mapping
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+# Prepare dataset
+sef_df <- merged_hhs_hon %>%
+  select(community, year, sef = all_of(sef_var)) %>%
+  filter(sef %in% names(likert_map)) %>%
+  mutate(sef_score = recode(sef, !!!likert_map)) %>%
+  group_by(community, year) %>%
+  filter(n() >= 10, sum(!is.na(sef_score)) >= 10) %>%  # Keep only year-community combos with ≥10 non-NA responses
+  ungroup() %>%
+  group_by(community) %>%
+  filter(n_distinct(year) >= 2) %>%  # At least 2 survey years with data
+  mutate(period = case_when(
+    year == min(year) ~ "before",
+    year == max(year) ~ "after"
+  )) %>%
+  filter(!is.na(period)) %>%
+  ungroup() %>%
+  mutate(period = factor(period, levels = c("before", "after")))
+
+# Run robust regression by community
+sef_model <- sef_df %>%
+  group_by(community) %>%
+  do({
+    model <- lm(sef_score ~ period, data = .)
+    robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+    tidy(robust) %>%
+      filter(term == "periodafter") %>%
+      mutate(
+        conf.low = estimate - 1.96 * std.error,
+        conf.high = estimate + 1.96 * std.error
+      )
+  }) %>%
+  ungroup() %>%
+  mutate(
+    significance = case_when(
+      p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+      p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+      TRUE ~ "Not Significant"
+    ),
+    fill_color = case_when(
+      significance == "Positive (p < 0.05)" ~ "#6baed6",
+      significance == "Negative (p < 0.05)" ~ "#fb6a4a",
+      TRUE ~ "white"
+    )
+  )
+
+# Plot effect sizes
+self_2 <- ggplot(sef_model, aes(x = reorder(community, estimate), y = estimate, fill = significance)) +
+  geom_point(shape = 21, size = 3, color = "black") +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2) +
+  scale_fill_manual(values = c(
+    "Positive (p < 0.05)" = "#6baed6",
+    "Negative (p < 0.05)" = "#fb6a4a",
+    "Not Significant" = "white"
+  )) +
+  coord_flip() +
+  labs(
+    x = "Community", y = "Effect Size (β1)",
+    title = paste("Individual Behavior"),
+    fill = "Change"
+  ) +
+  theme_minimal()
+
+
+(self_1 | self_2) +
+  plot_annotation(
+    title = "Before–after standardized effect sizes for Self Efficacy by Community",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+    )
+  )
+```
+
+The figure presents before–after standardized effect sizes (β₁) for two questions related to self efficacy across multiple communities.
+Each subplot corresponds to a distinct dimension of self efficacy:
+
+-   Change Behavior: *I am willing to change my fishing behavior.*
+
+-   Individual Behavior: *Through my individual fishing behavior, I can make a meaningful contribution to the sustainability of the fish catch.*
+
+Each point represents the estimated effect size for the before–after change in responses to each self efficacy question for a specific community.
+The horizontal lines indicate 95% confidence intervals.
+Point color denotes statistical significance.
+
+[**Key Takeaways**]{.underline}
+
+The analysis of self efficacy indicators (Change Behavior and Individual Behavior) shows **mixed results across communities, with no consistent trend** emerging across all dimensions.
+
+-   A large number of communities exhibit non-significant changes.
+
+-   Change Behavior shows mixed outcomes.
+    Significant positive effects were observed in Cocalito, Guadalupe, Capiro, and Santa Fe, while Muchilena, El Cayo, Cusuna, Limón, and San José de la Punta experienced significant negative changes.
+
+-   Individual Behavior presents a similarly polarized pattern.
+    Significant positive changes were observed in Cocalito, Capiro, Santa Fe, and Guadalupe, while Muchilena, El Cayo, San José de la Punta, Limón, Bajamar, and Cusuna showed significant declines in perceived individual influence.
+
+### d. [Community Level]{.underline}
+
+```{r}
+# 1. Define Likert & Binary mappings
+likert_map <- c(
+  "Strongly disagree" = 0,
+  "Disagree" = 25,
+  "Neither agree nor disagree" = 50,
+  "Agree" = 75,
+  "Strongly agree" = 100
+)
+
+binary_map <- c(
+  "Yes" = 100,
+  "No" = 0
+)
+
+# 2. Define all question metadata: Label -> (variable name, type)
+question_info <- list(
+  # Trust
+  "Community Trust" = list(var = "g8_trust_community", type = "likert"),
+  "Neighbors Trust" = list(var = "g8_trust_community_neighbors", type = "likert"),
+  "Local Decision Makers" = list(var = "g8_trust_local_decision", type = "likert"),
+  "Regional Decision Makers" = list(var = "g8_trust_regional_decision", type = "likert"),
+  # Social Cohesion
+  "Community Ability" = list(var = "g8_my_community_ability", type = "likert"),
+  "Fishery Benefit Equality" = list(var = "g8_fishery_benefit_equal", type = "binary"),
+  # Self-Efficacy
+  "Change Behavior" = list(var = "g12_agreement_change_fishing_behavior", type = "likert"),
+  "Individual Behavior" = list(var = "g12_agreement_individual_behavior", type = "likert")
+)
+
+all_results <- list()
+
+for (q_label in names(question_info)) {
+  q_var <- question_info[[q_label]]$var
+  q_type <- question_info[[q_label]]$type
+
+  df <- merged_hhs_hon %>%
+    select(community, year, response = all_of(q_var)) %>%
+    filter(!is.na(response))
+
+  if (q_type == "likert") {
+    df <- df %>%
+      filter(response %in% names(likert_map)) %>%
+      mutate(score = recode(response, !!!likert_map))
+  } else if (q_type == "binary") {
+    df <- df %>%
+      filter(response %in% names(binary_map)) %>%
+      mutate(score = recode(response, !!!binary_map))
+  }
+
+  df_cleaned <- df %>%
+    group_by(community, year) %>%
+    filter(n() >= 10, sum(!is.na(score)) >= 10) %>%
+    ungroup() %>%
+    group_by(community) %>%
+    filter(n_distinct(year) >= 2) %>%
+    mutate(period = case_when(
+      year == min(year) ~ "before",
+      year == max(year) ~ "after"
+    )) %>%
+    filter(!is.na(period)) %>%
+    ungroup() %>%
+    mutate(period = factor(period, levels = c("before", "after")))
+
+  if (nrow(df_cleaned) == 0) next  # Skip if no valid data
+
+  model_results <- df_cleaned %>%
+    group_by(community) %>%
+    do({
+      model <- lm(score ~ period, data = .)
+      robust <- coeftest(model, vcov = vcovHC(model, "HC1"))
+      tidy(robust) %>%
+        filter(term == "periodafter") %>%
+        mutate(
+          conf.low = estimate - 1.96 * std.error,
+          conf.high = estimate + 1.96 * std.error
+        )
+    }) %>%
+    ungroup() %>%
+    mutate(
+      question = q_label,
+      significance = case_when(
+        p.value < 0.05 & estimate > 0 ~ "Positive (p < 0.05)",
+        p.value < 0.05 & estimate < 0 ~ "Negative (p < 0.05)",
+        TRUE ~ "Not Significant"
+      )
+    )
+
+  all_results[[q_label]] <- model_results
 }
 
-# Add numeric trust columns
-merged_hhs_hon <- merged_hhs_hon %>%
-  mutate(
-    trust_community_num = likert_to_numeric(g8_trust_community),
-    trust_neighbors_num = likert_to_numeric(g8_trust_community_neighbors),
-    trust_local_decision_num = likert_to_numeric(g8_trust_local_decision),
-    trust_regional_decision_num = likert_to_numeric(g8_trust_regional_decision)
+final_df <- bind_rows(all_results)
+# 
+# unique_communities <- unique(combined_results$community)
+
+
+# Define question order and group
+question_order <- c(
+  "Community Trust",
+  "Neighbors Trust",
+  "Local Decision Makers",
+  "Regional Decision Makers",
+  "Community Ability",
+  "Fishery Benefit Equality",
+  "Change Behavior",
+  "Individual Behavior"
+)
+
+question_group <- data.frame(
+  question = question_order,
+  group = c(
+    rep("Trust", 4),
+    rep("Social Cohesion", 2),
+    rep("Self-Efficacy", 2)
   )
+)
 
-# Convert dates and calculate duration of engagement
-merged_hhs_hon <- merged_hhs_hon %>%
-  mutate(
-    survey_date = make_date(year, 6, 30), # mid-year surveys
-    program_start_date = dmy(program_start), # "18/4/2024" format
-    ff_duration_years = as.numeric(difftime(survey_date, program_start_date, units = "days")) / 365,
-    ff_duration_years = if_else(ff_duration_years < 0, 0, ff_duration_years) # negative durations as baseline (0)
-  )
+# Loop through communities
+unique_communities <- unique(final_df$community)
 
-# 2. Aggregate Trust Scores at Community Level:
+plots <- list()  # empty list to store plots
 
-community_trust <- merged_hhs_hon %>%
-  group_by(province, municipality, community) %>%
-  summarise(
-    mean_trust_community = mean(trust_community_num, na.rm = TRUE),
-    mean_trust_neighbors = mean(trust_neighbors_num, na.rm = TRUE),
-    mean_trust_local_decision = mean(trust_local_decision_num, na.rm = TRUE),
-    mean_trust_regional_decision = mean(trust_regional_decision_num, na.rm = TRUE),
-    avg_ff_duration_years = mean(ff_duration_years, na.rm = TRUE),
-    n_surveys = n()
+for (comm in unique(final_df$community)) {
+  comm_data <- final_df %>%
+    filter(community == comm) %>%
+    mutate(question = factor(question, levels = rev(question_order)))
+
+  present_questions <- levels(droplevels(comm_data$question))
+  y_map <- data.frame(
+    question = present_questions,
+    y = seq_along(present_questions)
   ) %>%
-  ungroup()
+    left_join(question_group, by = "question")
 
-# 3. Linear Regression:
+  separator_y <- y_map %>%
+    group_by(group) %>%
+    summarise(max_y = max(y), .groups = "drop") %>%
+    arrange(max_y) %>%
+    mutate(y_sep = max_y + 0.5) %>%
+    slice(-n())
 
-# Community Trust
-lm_community_trust <- lm(mean_trust_community ~ avg_ff_duration_years, data = community_trust)
-
-# Neighbors Trust
-lm_neighbors_trust <- lm(mean_trust_neighbors ~ avg_ff_duration_years, data = community_trust)
-
-# Local Decision-makers Trust
-lm_local_decision_trust <- lm(mean_trust_local_decision ~ avg_ff_duration_years, data = community_trust)
-
-# Regional Decision-makers Trust
-lm_regional_decision_trust <- lm(mean_trust_regional_decision ~ avg_ff_duration_years, data = community_trust)
-
-# Summary of Results
-# summary(lm_community_trust)
-# summary(lm_neighbors_trust)
-# summary(lm_local_decision_trust)
-# summary(lm_regional_decision_trust)
-
-# 4. Visualization:
-
-trust1 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_community)) +
-  geom_point(size = 2, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
-  labs(
-    title = "Community Trust",
-    x = "Fish Forever Engagement Duration (Years)",
-    y = "Avg. Community Trust"
-  ) +
-  theme_minimal()
-
-trust2 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_neighbors)) +
-  geom_point(size = 2, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
-  labs(
-    title = "Neighbors Trust",
-    x = "Fish Forever Engagement Duration (Years)",
-    y = "Avg. Neighbors Trust"
-  ) +
-  theme_minimal()
-
-trust3 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_local_decision)) +
-  geom_point(size = 2, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
-  labs(
-    title = "Local Decision Makers Trust",
-    x = "Fish Forever Engagement Duration (Years)",
-    y = "Avg. Local Decision-makers Trust"
-  ) +
-  theme_minimal()
-
-trust4 <- ggplot(community_trust, aes(x = avg_ff_duration_years, y = mean_trust_regional_decision)) +
-  geom_point(size = 2, alpha = 0.7) +
-  geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
-  labs(
-    title = "Regional Decision Makers Trust",
-    x = "Fish Forever Engagement Duration (Years)",
-    y = "Avg. Regional Decision-makers Trust"
-  ) +
-  theme_minimal()
-
-
-(trust1 + trust2) / (trust3 + trust4) +
-  plot_layout(heights = c(1, 1)) +
-  plot_annotation(
-    title = "Relationship Between FF Engagement Duration and Trust",
-    theme = theme(
-      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
-    )
-  )
-
-
-```
-
-[**Interpretation of Results**]{.underline}
-
--   **Community Trust**: There is no statistically significant relationship between FF engagement duration and community trust (p-value = 0.909).
-    The coefficient is slightly negative (coefficient = -0.008), and the model has no explanatory power (Adjusted R² = -0.018).
-
--   **Neighbors Trust**: A small positive trend (coefficient = 0.062) exists between FF engagement duration and trust in neighboring communities, but it is not statistically significant (p-value = 0.415).
-    The model explains very little of the variance (Adjusted R² = -0.006).
-
--   **Local Decision-makers Trust**: There is a mild positive association (coefficient = 0.085) between FF engagement duration and trust in local decision-makers, but the relationship is not statistically significant (p-value = 0.326).
-    The model has almost no explanatory power (Adjusted R² = -0.0003).
-
--   **Regional Decision-makers Trust**: A similar mild positive trend (coefficient = 0.062) is observed for trust in regional authorities, though not statistically significant (p-value = 0.350).
-    The adjusted R² is -0.002, indicating low explanatory value.
-
-## b. [Social Cohesion]{.underline}
-
-```{r display-plots14, fig.width=12, fig.height=8, dpi=300, results='asis'}
-# 1. Likert to numeric conversion function
-likert_to_numeric <- function(x) {
-  case_when(
-    x == "Strongly disagree" ~ 1,
-    x == "Disagree" ~ 2,
-    x == "Neither agree nor disagree" ~ 3,
-    x == "Agree" ~ 4,
-    x == "Strongly agree" ~ 5,
-    x == "No" ~ 1,
-    x == "Yes" ~ 5,
-    TRUE ~ NA_real_
-  )
-}
-
-# 2. Convert data and calculate FF duration
-merged_hhs_hon <- merged_hhs_hon %>%
-  mutate(
-    survey_date = make_date(year, 6, 30),
-    program_start_date = dmy(program_start),
-    ff_duration_years = as.numeric(difftime(survey_date, program_start_date, units = "days")) / 365,
-    ff_duration_years = if_else(ff_duration_years < 0, 0, ff_duration_years)
-  )
-
-# 3. Social Cohesion Analysis
-# Create numeric columns
-merged_hhs_hon <- merged_hhs_hon %>%
-  mutate(
-    community_support_num = likert_to_numeric(g8_trust_community_emergency),
-    post_emergency_recovery_num = likert_to_numeric(g8_trust_community_rebuilt),
-    community_ability_num = likert_to_numeric(g8_my_community_ability),
-    fishery_benefit_equal_num = likert_to_numeric(g8_fishery_benefit_equal)
-  )
-
-# Aggregate at community level
-social_cohesion <- merged_hhs_hon %>%
-  group_by(province, municipality, community) %>%
-  summarise(
-    mean_community_support = mean(community_support_num, na.rm = TRUE),
-    mean_post_emergency_recovery = mean(post_emergency_recovery_num, na.rm = TRUE),
-    mean_community_ability = mean(community_ability_num, na.rm = TRUE),
-    mean_fishery_benefit_equal = mean(fishery_benefit_equal_num, na.rm = TRUE),
-    avg_ff_duration_years = mean(ff_duration_years, na.rm = TRUE),
-    n_surveys = n()
-  ) %>% ungroup()
-
-# Linear regression analyses
-lm_community_support <- lm(mean_community_support ~ avg_ff_duration_years, data = social_cohesion)
-lm_post_emergency_recovery <- lm(mean_post_emergency_recovery ~ avg_ff_duration_years, data = social_cohesion)
-lm_community_ability <- lm(mean_community_ability ~ avg_ff_duration_years, data = social_cohesion)
-lm_fishery_benefit_equal <- lm(mean_fishery_benefit_equal ~ avg_ff_duration_years, data = social_cohesion)
-
-# Summarize regression results
-# summary(lm_community_support)
-# summary(lm_post_emergency_recovery)
-# summary(lm_community_ability)
-# summary(lm_fishery_benefit_equal)
-
-# Visualize results
-plot_cohesion <- function(df, y_var, y_label, title) {
-  ggplot(df, aes(x = avg_ff_duration_years, y = .data[[y_var]])) +
-    geom_point(size = 2, alpha = 0.7) +
-    geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
+  p <- ggplot(comm_data, aes(x = estimate, y = question, fill = significance)) +
+    geom_hline(data = separator_y, aes(yintercept = y_sep),
+               color = "grey50", linetype = "dashed", linewidth = 0.4) +
+    geom_point(shape = 21, size = 3, color = "black") +
+    geom_errorbarh(aes(xmin = conf.low, xmax = conf.high), height = 0.2) +
+    scale_fill_manual(values = c(
+      "Positive (p < 0.05)" = "#6baed6",
+      "Negative (p < 0.05)" = "#fb6a4a",
+      "Not Significant" = "white"
+    )) +
     labs(
-      title = title,
-      x = "Fish Forever Engagement Duration (Years)",
-      y = y_label
+      x = "Effect Size (β1)", y = "Question",
+      title = comm,
+      fill = "Significance"
     ) +
-    theme_minimal()
+    theme_minimal(base_size = 8) +
+    theme(legend.position = "none")
+
+  plots[[comm]] <- p  # store each plot
 }
 
-plot_cohesion1 <- plot_cohesion(social_cohesion, "mean_community_support", "Avg. Community Support", "Community Support")
-plot_cohesion2 <- plot_cohesion(social_cohesion, "mean_post_emergency_recovery", "Avg. Post-Emergency Recovery", "Post-Emergency Recovery")
-plot_cohesion3 <- plot_cohesion(social_cohesion, "mean_community_ability", "Avg. Community Fishery Management Ability", "Community Ability")
-plot_cohesion4 <- plot_cohesion(social_cohesion, "mean_fishery_benefit_equal", "Avg. Equal Benefit from Fishery", "Fishery Equal Benefit")
-
-
-(plot_cohesion1 + plot_cohesion2) / (plot_cohesion3 + plot_cohesion4) +
-  plot_layout(heights = c(1, 1)) +
-  plot_annotation(
-    title = "Relationship Between FF Engagement Duration and Social Cohesion",
-    theme = theme(
-      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
-    )
-  )
 
 ```
 
-[**Interpretation of Results**]{.underline}
-
--   **Community Support:** There is no statistically significant relationship between FF engagement duration and perceptions of community support (p-value = 0.723).
-    The coefficient is small (coefficient = 0.034), and the model explains virtually no variation (Adjusted R² = -0.072).
-
--   **Post-Emergency Recovery**: Likewise, there is no significant association between FF duration and perceptions of post-emergency recovery (p-value = 0.789).
-    The coefficient is slightly negative (coefficient = -0.017), and the adjusted R² is -0.077.
-
--   **Community Ability (marginal result)**: There is a slight positive trend between FF engagement duration and perceived ability of the community to manage fisheries (coefficient = 0.125), with marginal significance (p-value = 0.095).
-    The model has modest explanatory power (Adjusted R² = 0.033).
-
--   **Fishery Benefit Equality:** No relationship is found between FF engagement duration and perceived equality in fishery benefits (p-value = 0.932).
-    The coefficient is nearly zero (coefficient = -0.007), and the adjusted R² is -0.018.
-
-## c. [Self Efficacy]{.underline}
-
-```{r display-plots15, fig.width=12, fig.height=8, dpi=300, results='asis'}
-# 4. Self-Efficacy Analysis
-merged_hhs_hon <- merged_hhs_hon %>%
-  mutate(
-    change_behavior_num = likert_to_numeric(g12_agreement_change_fishing_behavior),
-    individual_behavior_num = likert_to_numeric(g12_agreement_individual_behavior)
-  )
-
-# Aggregate at community level
-self_efficacy <- merged_hhs_hon %>%
-  group_by(province, municipality, community) %>%
-  summarise(
-    mean_change_behavior = mean(change_behavior_num, na.rm = TRUE),
-    mean_individual_behavior = mean(individual_behavior_num, na.rm = TRUE),
-    avg_ff_duration_years = mean(ff_duration_years, na.rm = TRUE),
-    n_surveys = n()
-  ) %>% ungroup()
-
-# Linear regression analyses
-lm_change_behavior <- lm(mean_change_behavior ~ avg_ff_duration_years, data = self_efficacy)
-lm_individual_behavior <- lm(mean_individual_behavior ~ avg_ff_duration_years, data = self_efficacy)
-
-# Summarize regression results
-# summary(lm_change_behavior)
-# summary(lm_individual_behavior)
-
-# Visualize results
-plot_efficacy <- function(df, y_var, y_label, title) {
-  ggplot(df, aes(x = avg_ff_duration_years, y = .data[[y_var]])) +
-    geom_point(size = 2, alpha = 0.7) +
-    geom_smooth(method = "lm", se = TRUE, color = "#1f78b4") +
-    labs(
-      title = title,
-      x = "Fish Forever Engagement Duration (Years)",
-      y = y_label
-    ) +
-    theme_minimal()
-}
-
-plot_efficacy1<- plot_efficacy(self_efficacy, "mean_change_behavior", "Avg. Willingness to Change Behavior", "Willingness to Change Behavior")
-plot_efficacy2 <- plot_efficacy(self_efficacy, "mean_individual_behavior", "Avg. Belief in Individual Impact", "Belief in Individual Impact")
-
-
-(plot_efficacy1 / plot_efficacy2)  +
-  plot_layout(heights = c(1, 1)) +
-  plot_annotation(
-    title = "Relationship Between FF Engagement Duration and Self Efficacy",
-    theme = theme(
-      plot.title = element_text(face = "bold.italic", hjust = 0.5, margin = margin(b = 20))
-    )
-  )
-
+```{r community-effect-sizes, fig.width=12, fig.height=24, out.width="100%", fig.align='center', message=FALSE, warning=FALSE}
+wrap_plots(plots, ncol = 3)
 ```
 
-[**Interpretation of Results**]{.underline}
+Each community plot displays the standardized effect sizes (β1) for up to 8 social indicators, grouped into three thematic areas:
 
--   **Change Behavior**: There is no significant relationship between FF engagement duration and willingness to change fishing behavior (p-value = 0.739).
-    The coefficient is small (coefficient = 0.021), and the model has no explanatory value (Adjusted R² = -0.016).
+-   Trust: Community Trust, Neighbors Trust, Local Decision Makers, Regional Decision Makers
 
--   **Individual Behavior Impact**: A small positive trend exists between FF engagement and belief in one’s individual impact on sustainability, but the result is not statistically significant (p-value = 0.220).
-    The coefficient is small (coefficient = 0.094), with low explanatory power (Adjusted R² = 0.010).
+-   Social Cohesion: Community Ability, Fishery Benefit Equality
 
-# 6. Conclusions
+-   Self-Efficacy: Change Behavior, Individual Behavior
 
-Due to key limitations in the available data (absence of a control population, a lack of temporally consistent data at the community level, and very limited participation in savings clubs) we revised the original objective of this analysis.
-Rather than assessing whether FF interventions have caused improvements in social measures over time or are linked to savings club participation, we focused instead on examining whether the duration of FF engagement in a community is associated with current levels of trust, social cohesion, and self-efficacy.
+Each point represents the estimated effect size for the before–after change in responses to each social indicator question.
+The horizontal lines indicate 95% confidence intervals.
+Point color denotes statistical significance.
 
-Overall, the regression analyses indicate limited evidence of such a relationship.
-Trust metrics showed no statistically significant association with the length of FF engagement.
-Likewise, indicators of social cohesion and self-efficacy did not exhibit significant correlations with program duration.
-One exception was a weak significant positive relationship between FF engagement duration and perceived community ability to manage fisheries, which may suggest some marginal incremental gains over time.
+[**Key Takeaways**]{.underline}
 
-Ultimately, this report highlights the limitations of the current dataset more than it reveals actionable findings.
-The fragmented and inconsistent structure of the data poses serious constraints for assessing change over time or attributing impact.
-With these limitations comes a clear recommendation: if the goal of future survey efforts is to track changes in social measures, FF will need to adopt an aligned and consistent sampling design.
-Notably, I understand that FF is already aware of these challenges and is considering improvements in this area, which will be essential for generating more meaningful and evaluable data in future assessments.
+At the community level, the analysis reveals **strong heterogeneity** in outcomes.
+While some communities exhibit consistent and significant positive social change others show negative or stagnant trends.
+
+-   Communities showing broad positive trends: Capiro, Plan Grande, Jericó, and Moradel stand out with multiple significant positive effect sizes.
+
+-   Communities showing consistent negative trends: Bajamar, Cusuna, El Cayo, Muchilena, Puerto Castilla, and San Martín are notable for widespread significant declines across multiple trust, cohesion, and efficacy indicators.
+
+-   Communities with mixed or moderate changes: Most communities show mix and non-significant results across indicators.
+
+<br>
+
+------------------------------------------------------------------------
+
+<br>
+
+# 5. Conclusion
+
+This analysis of changes in key social measures (Trust, Social Cohesion, and Self-Efficacy) across coastal communities in Honduras reveals no clear or consistent pattern of change across indicators or communities.
+While a large number of communities showed non-significant changes across most indicators, others exhibited either positive gains or declines.
+
+The results show substantial variation in effect sizes, both across communities and across questions.
+For example, a question that showed positive change in one community often showed negative or no change in another.
+Although some changes were statistically significant, they were scattered and inconsistent, making it difficult to draw broad conclusions about program impact or widespread social progress.
+
+At the site level, the analysis highlights strong heterogeneity.
+A small number of communities (such as Capiro, Plan Grande, Jericó, and Moradel) stood out for showing significant positive changes across multiple indicators, suggesting localized momentum in social outcomes.
+Conversely, communities such as Bajamar, Muchilena, Cusuna, and El Cayo experienced consistent negative trends, indicating potential challenges in trust, cohesion, or individual empowerment.
+Most other communities showed a mix of non-significant results.
+
+**Overall, the findings reflect mixed results and a lack of clear trends, making it difficult to extract broad, meaningful conclusions about social change across communities**.

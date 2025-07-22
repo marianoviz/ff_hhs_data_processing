@@ -227,6 +227,27 @@ merged_hhs <- merged_hhs %>%
     merged_hhs_municipality = ifelse(is.na(g1_municipality), g1_local, g1_municipality)
   )
 
+
+
+# Step 1: Create a lookup table from level_1
+province_to_country <- level_1 %>%
+  select(label, country) %>%
+  distinct()
+
+# Step 2: Fill missing g1_country for 2024 and 2025
+merged_hhs <- merged_hhs %>%
+  left_join(
+    province_to_country,
+    by = c("merged_hhs_province" = "label")
+  ) %>%
+  mutate(
+    g1_country = if_else(
+      year %in% c(2024, 2025) & is.na(g1_country),
+      country,
+      g1_country
+    )
+  ) %>%
+  select(-country)  # remove helper column from join
 ```
 
 # Summary
@@ -312,16 +333,16 @@ round(farmers_among_fishers_pct, 1)
 
 # Do Honduras Fishers Also Farm?
 
-[**Short answer**]{.underline}**:** Out of the 2,738 households surveyed in Honduras from 2019 to 2024, 1,722 were identified as fishers, representing 63% of the total sample.
-Among them, 650 households also reported income from farming activities—this means that **38% of fishers also farm**.
+[**Short answer**]{.underline}**:** Out of the 4,829 households surveyed in Honduras from 2019 to 2025, 2,823 were identified as fishers, representing 58% of the total sample.
+Among them, 830 households also reported income from farming activities—this means that **29% of fishers also farm**.
 
 <br>
 
 **Disaggregated Findings**
 
 There is substantial variation across provinces.
-In Colón and Cortés, around 40% of fishers also report income from farming.
-In Atlántida, the figure is lower at 27%, while in Islas de la Bahía, very few fishers report any farming income (*For details, see section 'Fishing and Farming Households' → 'Provincial Breakdown').*
+In Colón, 40% of fishers also report income from farming, while in Cortés the figure is slightly lower at 20%.
+In Atlántida, 29% of fishers engage in both fishing and farming, whereas in Islas de la Bahía, only 3% of fishers report any farming income (*For details, see section 'Fishing and Farming Households' → 'Provincial Breakdown').*
 
 It’s important to note that the year-level disaggregation of results should be interpreted with caution.
 As shown in the summary table below, different provinces were sampled in different years, making it difficult to distinguish year effects from geographic differences.
@@ -351,7 +372,7 @@ merged_hhs_hon_source %>%
     values_fill = 0
   ) %>%
   rename(Province = province) %>%
-  select(Province, `2019`, `2021`, `2023`, `2024`) %>%
+  select(Province, `2019`, `2021`, `2023`, `2024`, `2025`) %>%
   kable("html", caption = "Number of Observations per Province per Year") %>%
   kable_styling(
     bootstrap_options = c("striped", "hover", "condensed", "responsive"),
@@ -368,7 +389,7 @@ merged_hhs_hon_source %>%
 ## National Overview
 
 ```{r display-plots1, fig.width=10, fig.height=6, dpi=300, results='asis'}
-# Recode labels (example, adjust as needed)
+# Step 1: Recode labels (same as your global definition)
 income_labels <- c(
   "Farming",
   "Forest Harvesting",
@@ -383,56 +404,57 @@ income_labels <- c(
   "Other"
 )
 
-# Create the long-format dataset and summarize income proportions
+# Step 2: Long-format and summarise for Honduras
 df_income_long <- merged_hhs_hon_source %>%
   select(all_of(income_cols)) %>%
   mutate(across(everything(), as.numeric)) %>%
-  filter(if_any(everything(), ~ !is.na(.))) %>%  # Keep rows with at least one value
+  filter(if_any(everything(), ~ !is.na(.))) %>%
   pivot_longer(everything(), names_to = "source", values_to = "income_pct") %>%
   mutate(source = recode(source, !!!setNames(income_labels, income_cols))) %>%
   group_by(source) %>%
-  summarise(total_pct = sum(income_pct, na.rm = TRUE)) %>%
+  summarise(total_pct = sum(income_pct, na.rm = TRUE), .groups = "drop") %>%
   mutate(prop = total_pct / sum(total_pct)) %>%
-  arrange(desc(prop)) %>%
-  mutate(
-    source = factor(source, levels = source),
-    label = paste0(source, " (", scales::percent(prop, accuracy = 1), ")")
-  )
+  arrange(desc(prop))
 
-# Define colors
-source_colors <- setNames(
-  RColorBrewer::brewer.pal(n = nrow(df_income_long), name = "Paired"),
-  df_income_long$source
+# Step 3: Set factor levels based on ordering by prop
+df_income_long$source <- factor(df_income_long$source, levels = df_income_long$source)
+
+# Step 4: Define custom color palette
+source_colors <- c(
+  "Artisanal Fishing"    = "#A6CEE3", 
+  "Farming"              = "#B2DF8A", 
+  "Other Wage Labor"     = "#CAB2D6", 
+  "Other"                = "#FDBF6F",  
+  "Fish Buying/Trading"  = "#FB9A99", 
+  "Fish Processing"      = "#E31A1C", 
+  "Industrial Fishing"   = "#1F78B4", 
+  "Aquaculture"          = "#FF7F00",  
+  "Forest Harvesting"    = "#33A02C", 
+  "Marine Tourism"       = "#6A3D9A",  
+  "Marine Extraction"    = "#FFFF99"  
 )
 
-# Define the color palette using RColorBrewer (or keep your custom colors)
-source_colors <- setNames(
-  RColorBrewer::brewer.pal(n = nrow(df_income_long), name = "Paired"),
-  df_income_long$source
-)
+# Step 5: Reorder colors to match bar order
+ordered_colors <- source_colors[names(source_colors) %in% levels(df_income_long$source)]
+ordered_colors <- ordered_colors[match(levels(df_income_long$source), names(ordered_colors))]
 
-# Swap the colors
-temp_color <- source_colors["Other"]
-source_colors["Other"] <- source_colors["Industrial Fishing"]
-source_colors["Industrial Fishing"] <- temp_color
+# Step 6: Create legend labels
+legend_labels <- paste0(levels(df_income_long$source), " (", scales::percent(df_income_long$prop, accuracy = 1), ")")
+n_total_hon <- nrow(merged_hhs_hon_source)
 
-temp_color2 <- source_colors["Other Wage Labor"]
-source_colors["Other Wage Labor"] <- source_colors["Forest Harvesting"]
-source_colors["Forest Harvesting"] <- temp_color2
-
-# Create the plot
+# Step 7: Create the plot
 ggplot(df_income_long, aes(x = source, y = prop, fill = source)) +
   geom_col(width = 0.8) +
   geom_text(aes(label = scales::percent(prop, accuracy = 1)),
             vjust = -0.3, size = 3.5, color = "black") +
   scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.1))) +
   scale_fill_manual(
-    values = source_colors,
-    labels = df_income_long$label
+    values = ordered_colors,
+    labels = legend_labels
   ) +
   labs(
-    title = "Total Income Share by Source",
-    x = "Source",
+    title = paste0("Income Share by Source in Honduras (n = ", formatC(n_total_hon, format = "d", big.mark = ","), ")"),
+    x = "",
     y = "Proportion of Reported Income Sources",
     fill = "Income Source"
   ) +
@@ -441,7 +463,8 @@ ggplot(df_income_long, aes(x = source, y = prop, fill = source)) +
     legend.position = "right",
     legend.title = element_text(face = "bold"),
     legend.text = element_text(size = 10),
-    axis.text.x = element_text(angle = 45, hjust = 1)
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(face = "bold")
   )
 
 

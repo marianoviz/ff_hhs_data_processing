@@ -1,0 +1,748 @@
+---
+title: "BAF indicators baseline and change"
+author: "Mariano Viz"
+date: "2025-07-14"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, collapse = TRUE, comment = "#>", fig.align = 'center')
+
+library(tidyverse)
+library(here)
+library(janitor)
+library(effsize)
+library(jsonlite)
+library(readxl)
+library(data.world)
+library(lmtest)
+library(sandwich)
+library(broom)
+library(rstatix)
+library(gridExtra)
+library(stringr)
+library(ggstats)
+library(patchwork)
+library(scales)
+library(forcats)
+library(readr)
+library(tidyr)
+library(cowplot)
+library(forcats)
+library(grid)
+library(kableExtra)
+
+```
+
+
+```{r, warning=FALSE, message=FALSE, echo=FALSE}
+# Getting merged_hhs dataset: Basic Script + Correction for kobo_4 col names in Bahasa
+
+
+# Load Required Libraries
+library(httr)
+library(readxl)
+library(readr)
+library(dplyr)
+library(purrr)
+library(here)
+
+# Step 1: Define Helper Functions
+
+## Function to download and read Excel files
+download_and_read_excel <- function(url) {
+  temp_file <- tempfile(fileext = ".xlsx")
+  GET(url, write_disk(temp_file, overwrite = TRUE))
+  data <- read_excel(temp_file)
+  unlink(temp_file)
+  return(data)
+}
+
+## Function to process datasets using metadata
+process_dataset <- function(dataset, metadata) {
+  column_map <- metadata %>%
+    tidyr::separate_rows(`Original Column Name`, sep = "; ") %>%
+    select(`Original Column Name`, `Standardized Column Name`) %>%
+    distinct() %>%
+    group_by(`Original Column Name`) %>%
+    slice(1) %>%
+    ungroup() %>%
+    filter(`Original Column Name` %in% names(dataset))
+  
+  new_colnames <- names(dataset) %>%
+    purrr::map_chr(~ {
+      if (.x %in% column_map$`Original Column Name`) {
+        column_map$`Standardized Column Name`[column_map$`Original Column Name` == .x]
+      } else {
+        NA_character_
+      }
+    })
+  
+  names(dataset) <- new_colnames
+  dataset <- dataset %>%
+    select(any_of(metadata$`Standardized Column Name`))
+  return(dataset)
+}
+
+## Function to remove note columns (starting with "g99")
+remove_g99_columns <- function(dataset) {
+  dataset %>% select(-starts_with("g99"))
+}
+
+## Function to standardize column types across datasets
+standardize_column_types <- function(datasets) {
+  all_columns <- datasets %>%
+    purrr::map(names) %>%
+    purrr::reduce(union)
+  
+  datasets <- datasets %>%
+    purrr::map(~ {
+      dataset <- .x
+      missing_columns <- setdiff(all_columns, names(dataset))
+      dataset[missing_columns] <- NA
+      dataset <- dataset %>%
+        mutate(across(everything(), as.character))
+      return(dataset)
+    })
+  return(datasets)
+}
+
+# Step 2: Define URLs for Data Sources
+urls <- list(
+  fastfield = "https://query.data.world/s/w67hchmwgk4xyshbmb4xkxitsamtag?dws=00000",
+  kobo_1 = "https://query.data.world/s/2ltshiqf5ablwa6pw4uijvzgm6j37j?dws=00000",
+  kobo_2 = "https://query.data.world/s/hczi25yxfpweveumkatcfobp4qbik5?dws=00000",
+  kobo_3 = "https://query.data.world/s/hgss74tml5z4f3gdi4h2ztkw4wfcx2?dws=00000",
+  kobo_4 = "https://query.data.world/s/v7amp6zyj7rxyoflfstnwpuvgse3mr?dws=00000",
+  kobo_5 = "https://query.data.world/s/wejaidwccqs2wqtg7n5ksnxmfirwhn?dws=00000"
+)
+
+metadata_url <- "https://docs.google.com/spreadsheets/d/e/2PACX-1vQc0btEwxARDVBC0Ny6ZCRlzoIjQ7txvbFoU-xlQOI97CP2tGNr4hPOskVGhr74dhCYQkBmxSm9zFkn/pub?output=csv"
+
+
+#Addressing problem with kobo_4 having col names in bahasa
+# Read both the downloaded and local versions of kobo_4
+kobo_4_downloaded <- download_and_read_excel(urls$kobo_4)
+kobo_4_local <- read_excel(here("data", "kobo", "hhs_kobo_mod_4.xlsx"))
+# Replace downloaded data's column names with those from the local file
+names(kobo_4_downloaded) <- names(kobo_4_local)
+
+
+
+# Step 3: Download Data
+datasets <- list(
+  fastfield = read.csv(urls$fastfield, header = TRUE, stringsAsFactors = FALSE, check.names = FALSE),
+  kobo_1 = download_and_read_excel(urls$kobo_1),
+  kobo_2 = download_and_read_excel(urls$kobo_2),
+  kobo_3 = download_and_read_excel(urls$kobo_3),
+  kobo_4 = kobo_4_downloaded,
+  kobo_5 = download_and_read_excel(urls$kobo_5)
+)
+
+metadata <- read_csv(metadata_url)
+
+# Step 4: Process and Clean Datasets
+processed_datasets <- purrr::map(datasets, process_dataset, metadata = metadata)
+cleaned_datasets <- purrr::map(processed_datasets, remove_g99_columns)
+standardized_datasets <- standardize_column_types(cleaned_datasets)
+
+# Step 5: Merge All Datasets
+merged_hhs <- purrr::reduce(standardized_datasets, full_join, by = NULL)
+
+# Clear all objects except merged_hhs
+rm(list = setdiff(ls(), "merged_hhs"))
+
+# The merged_hhs dataset is now ready for use.
+
+# Adding year
+
+# Load required libraries
+library(dplyr)
+library(lubridate)
+
+# Assuming the merged dataset is stored in a variable called merged_hhs
+# Update the 'year' column using 'g0_year' and 'g0_submission_time'
+merged_hhs <- merged_hhs %>%
+  mutate(
+    year = ifelse(is.na(g0_year), 
+                  year(ymd_hms(g0_submission_time)), 
+                  g0_year)
+  )
+
+
+#unique(merged_hhs$year)
+
+
+
+# Merging location information (Province, Municipality, and Community)
+
+# Load required libraries
+library(dplyr)
+library(readr)
+library(here)
+
+# Read metadata for location IDs
+level_1 <- read_csv(here("data", "location_ids", "level1.csv")) # Province
+level_2 <- read_csv(here("data", "location_ids", "level2.csv")) # Municipality
+level_4 <- read_csv(here("data", "location_ids", "level4.csv")) # Community
+
+# Replace coded entries with corresponding labels
+# Province
+merged_hhs$g1_province <- as.character(merged_hhs$g1_province)
+merged_hhs$g1_province <- ifelse(
+  merged_hhs$g1_province %in% level_1$name, 
+  level_1$label[match(merged_hhs$g1_province, level_1$name)], 
+  merged_hhs$g1_province
+)
+
+# Municipality
+merged_hhs$g1_municipality <- as.character(merged_hhs$g1_municipality)
+merged_hhs$g1_municipality <- ifelse(
+  merged_hhs$g1_municipality %in% level_2$name, 
+  level_2$label[match(merged_hhs$g1_municipality, level_2$name)], 
+  merged_hhs$g1_municipality
+)
+
+# Community
+merged_hhs$g1_community <- as.character(merged_hhs$g1_community)
+merged_hhs$g1_community <- ifelse(
+  merged_hhs$g1_community %in% level_4$name, 
+  level_4$label[match(merged_hhs$g1_community, level_4$name)], 
+  merged_hhs$g1_community
+)
+
+# Generate final columns for merged dataset
+merged_hhs <- merged_hhs %>%
+  mutate(
+    merged_hhs_community = g1_community,
+    merged_hhs_province = ifelse(is.na(g1_province), g1_subnational, g1_province),
+    merged_hhs_municipality = ifelse(is.na(g1_municipality), g1_local, g1_municipality)
+  )
+
+
+# Standardised countries
+merged_hhs <- merged_hhs %>%
+  mutate(g1_country = case_when(
+    g1_country %in% c("FSM", "HND", "BRA", "IDN", "PLW", "GTM", "MOZ", "PHL") ~ g1_country,
+    g1_country == "Indonesia" ~ "IDN",
+    is.na(g1_country) ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+# Step 1: Create a lookup table from level_1
+province_to_country <- level_1 %>%
+  select(label, country) %>%
+  distinct()
+
+# Step 2: Fill missing g1_country for 2025 using a left join
+merged_hhs <- merged_hhs %>%
+  left_join(
+    province_to_country,
+    by = c("merged_hhs_province" = "label")
+  ) %>%
+  mutate(
+    g1_country = if_else(
+      year == 2025 & is.na(g1_country),
+      country,
+      g1_country
+    )
+  ) %>%
+  select(-country)  # remove helper column from join
+
+
+```
+
+
+
+
+
+```{r}
+# # Communities with more than one year of data and which years are available
+# # Step 1: Group by community and year, then count how many years per community
+# community_years <- merged_hhs_phi %>%
+#   select(merged_hhs_community, year) %>%
+#   distinct() %>%  # Remove duplicates of community-year combinations
+#   group_by(merged_hhs_community) %>%
+#   summarise(years_available = list(sort(unique(year))), 
+#             n_years = n(), .groups = "drop") %>%
+#   filter(n_years > 1)
+# 
+# # View result: 
+# print(community_years)
+# 
+# 
+# 
+# # Count observations per year for communities with 3 years of data
+# # Step 1: Identify communities with exactly 3 years of data
+# communities_3_years <- merged_hhs_phi %>%
+#   select(merged_hhs_community, year) %>%
+#   distinct() %>%
+#   group_by(merged_hhs_community) %>%
+#   summarise(n_years = n_distinct(year), .groups = "drop") %>%
+#   filter(n_years == 3)
+# 
+# # Step 2: Filter original data to include only those communities
+# filtered_data <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% communities_3_years$merged_hhs_community)
+# 
+# # Step 3: Count observations per year for each selected community
+# obs_per_year <- filtered_data %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(n_observations = n(), .groups = "drop") %>%
+#   arrange(merged_hhs_community, year)
+# 
+# # View the result
+# print(obs_per_year)
+# 
+# 
+# 
+# # Filter communities where all 3 years have at least 10 observations
+# # Step 1: Identify communities with exactly 3 years of data
+# communities_3_years <- merged_hhs_phi %>%
+#   select(merged_hhs_community, year) %>%
+#   distinct() %>%
+#   group_by(merged_hhs_community) %>%
+#   summarise(n_years = n_distinct(year), .groups = "drop") %>%
+#   filter(n_years == 3)
+# 
+# # Step 2: Count observations per community and year
+# obs_per_year <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% communities_3_years$merged_hhs_community) %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(n_observations = n(), .groups = "drop")
+# 
+# # Step 3: Keep only communities where all 3 years have at least 10 observations
+# valid_communities <- obs_per_year %>%
+#   group_by(merged_hhs_community) %>%
+#   filter(all(n_observations >= 10)) %>%
+#   summarise(.groups = "drop") %>%
+#   distinct(merged_hhs_community)
+# 
+# # Step 4: Filter the original table to only include valid communities and return final counts
+# final_obs_per_year <- obs_per_year %>%
+#   filter(merged_hhs_community %in% valid_communities$merged_hhs_community) %>%
+#   arrange(merged_hhs_community, year)
+# 
+# # View the result
+# print(final_obs_per_year)
+# 
+# 
+# 
+# # Ceeck how many NAs we have in the required columns for these sites
+# # Step 1: Identify communities with exactly 3 years of data
+# communities_3_years <- merged_hhs_phi %>%
+#   select(merged_hhs_community, year) %>%
+#   distinct() %>%
+#   group_by(merged_hhs_community) %>%
+#   summarise(n_years = n_distinct(year), .groups = "drop") %>%
+#   filter(n_years == 3)
+# 
+# # Step 2: Count observations per community and year
+# obs_per_year <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% communities_3_years$merged_hhs_community) %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(n_observations = n(), .groups = "drop")
+# 
+# # Step 3: Keep only communities where all 3 years have at least 10 observations
+# valid_communities <- obs_per_year %>%
+#   group_by(merged_hhs_community) %>%
+#   filter(all(n_observations >= 10)) %>%
+#   summarise(.groups = "drop") %>%
+#   distinct(merged_hhs_community)
+# 
+# # Step 4: Count observations and NAs in target columns
+# final_summary <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% valid_communities$merged_hhs_community) %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(
+#     n_observations = n(),
+#     na_ma_benefit_5yrs = sum(is.na(g10_ma_benefit_5yrs)),
+#     na_wrong_reserve_fishing = sum(is.na(g12_how_wrong_reserve_fishing)),
+#     na_enforcement_regulation = sum(is.na(g10_enforcement_regulation_fishers_reserves)),
+#     .groups = "drop"
+#   ) %>%
+#   arrange(merged_hhs_community, year)
+# 
+# # View the result
+# print(final_summary)
+# 
+# 
+# #NAs as percent
+# # Step 1: Identify communities with exactly 3 years of data
+# communities_3_years <- merged_hhs_phi %>%
+#   select(merged_hhs_community, year) %>%
+#   distinct() %>%
+#   group_by(merged_hhs_community) %>%
+#   summarise(n_years = n_distinct(year), .groups = "drop") %>%
+#   filter(n_years == 3)
+# 
+# # Step 2: Count observations per community and year
+# obs_per_year <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% communities_3_years$merged_hhs_community) %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(n_observations = n(), .groups = "drop")
+# 
+# # Step 3: Keep only communities where all 3 years have at least 10 observations
+# valid_communities <- obs_per_year %>%
+#   group_by(merged_hhs_community) %>%
+#   filter(all(n_observations >= 10)) %>%
+#   summarise(.groups = "drop") %>%
+#   distinct(merged_hhs_community)
+# 
+# # Step 4: Count observations and % of NAs in target columns
+# final_summary <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% valid_communities$merged_hhs_community) %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(
+#     n_observations = n(),
+#     pct_na_ma_benefit_5yrs = round(100 * sum(is.na(g10_ma_benefit_5yrs)) / n_observations, 0),
+#     pct_na_wrong_reserve_fishing = round(100 * sum(is.na(g12_how_wrong_reserve_fishing)) / n_observations, 0),
+#     pct_na_enforcement_regulation = round(100 * sum(is.na(g10_enforcement_regulation_fishers_reserves)) / n_observations, 0),
+#     .groups = "drop"
+#   ) %>%
+#   arrange(merged_hhs_community, year)
+# 
+# 
+# # View the result
+# print(final_summary)
+# 
+# 
+# # Can ONLY evaluate changes for:
+#  # - g10_ma_benefit_5yrs (for Salog and Salvacion)
+#  # - g10_enforcement_regulation_fishers_reserves (for Salog, Salvacion, and San Isidro)
+# 
+# 
+# # Step 1: Get communities with more than one year of data
+# community_years <- merged_hhs_phi %>%
+#   select(merged_hhs_community, year) %>%
+#   distinct() %>%
+#   group_by(merged_hhs_community) %>%
+#   summarise(n_years = n_distinct(year), .groups = "drop") %>%
+#   filter(n_years > 1)
+# 
+# # Step 2: Filter the main dataset to only include those communities
+# filtered_data <- merged_hhs_phi %>%
+#   filter(merged_hhs_community %in% community_years$merged_hhs_community)
+# 
+# # Step 3: Summarise by community and year: n observations and NA percentages
+# summary_table <- filtered_data %>%
+#   group_by(merged_hhs_community, year) %>%
+#   summarise(
+#     n_observations = n(),
+#     pct_na_ma_benefit_5yrs = round(100 * sum(is.na(g10_ma_benefit_5yrs)) / n_observations, 0),
+#     pct_na_wrong_reserve_fishing = round(100 * sum(is.na(g12_how_wrong_reserve_fishing)) / n_observations, 0),
+#     pct_na_enforcement_regulation = round(100 * sum(is.na(g10_enforcement_regulation_fishers_reserves)) / n_observations, 0),
+#     .groups = "drop"
+#   ) %>%
+#   arrange(merged_hhs_community, year)
+# 
+# # View the result
+# print(summary_table)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Standardise Qs
+merged_hhs_phi <- merged_hhs %>% 
+  filter(g1_country == "PHL")
+
+
+# Unique values
+unique(merged_hhs_phi$g10_benefits_comply_agreement_gear)
+
+# Standardize entries
+merged_hhs_phi <- merged_hhs_phi %>%
+  mutate(g10_benefits_comply_agreement_gear = case_when(
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^strongly_disagree$") ~ "Strongly disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^disagree$") ~ "Disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^neither$") ~ "Neither agree nor disagree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^agree$") ~ "Agree",
+    str_detect(tolower(g10_benefits_comply_agreement_gear), "^strongly_agree$") ~ "Strongly agree",
+    TRUE ~ NA_character_
+  ))
+
+
+
+
+# Unique values
+unique(merged_hhs_phi$g12_how_wrong_gear)
+
+# Standardize entries
+merged_hhs_phi <- merged_hhs_phi %>%
+  mutate(g12_how_wrong_gear = case_when(
+    str_detect(tolower(g12_how_wrong_gear), "^not_wrong$|a\\. tidak salah|tidak salah") ~ "Not wrong at all",
+    str_detect(tolower(g12_how_wrong_gear), "^slightly_wrong$|b\\. sedikit salah|sedikit salah") ~ "Slightly wrong",
+    str_detect(tolower(g12_how_wrong_gear), "^moderately_wrong$|c\\. cukup salah|cukup salah") ~ "Moderately wrong",
+    str_detect(tolower(g12_how_wrong_gear), "^very_wrong$|d\\. salah|salah") ~ "Very wrong",
+    str_detect(tolower(g12_how_wrong_gear), "^extremely_wrong$|e\\. sangat salah|sangat salah") ~ "Extremely wrong",
+    str_detect(tolower(g12_how_wrong_gear), "^$|na|tidak berlaku") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+# Unique values
+unique(merged_hhs_phi$g10_enforcement_regulation_fishers_gear_not_permitted)
+
+# Standardize entries
+merged_hhs_phi <- merged_hhs_phi %>%
+  mutate(g10_enforcement_regulation_fishers_gear_not_permitted = case_when(
+    g10_enforcement_regulation_fishers_gear_not_permitted %in% as.character(0:10) ~ g10_enforcement_regulation_fishers_gear_not_permitted,
+    g10_enforcement_regulation_fishers_gear_not_permitted %in% c("Not Answered", "na", "Tidak tahu") ~ NA_character_,
+    TRUE ~ NA_character_
+  ))
+
+
+
+merged_hhs_phi_clean <- merged_hhs_phi %>%
+  select(
+    g1_country,
+    year,
+    province = merged_hhs_province,
+    municipality = merged_hhs_municipality,
+    community = merged_hhs_community,
+    g10_benefits_comply_agreement_gear,
+    g12_how_wrong_gear,
+    g10_enforcement_regulation_fishers_gear_not_permitted
+  )
+```
+
+
+
+Sites: 
+- Southeast Negros: Bais, Tanjay, Amlan, San Jose. Sibulan, Tanjay
+
+- Mideast Negros: Ayungon, Bindoy, Tayasan, Manjuyod,  Guihulngan, Jimalalud
+
+- Northeast Negros: San Carlos, Escalante, Calatrava, San Carlos, Toboso
+
+- Northwest Cebu: Bantayan, Santa Fe
+
+
+- Baseline metric: Percentage of sampled households that have a positive attitude towards marine conservation.  
+- Target metric: Relative percentage increase in sampled households in target SMUs that have a positive attitude towards marine conservation.
+
+
+
+
+# Positive attitudes towards biodiversity protection 
+
+--> Do you agree or disagree that the benefits from complying with the following rules outweigh the restrictions? (g10_benefits_comply_agreement_gear) 
+Strongly disagree - Strongly agree
+
+```{r}
+
+sum(is.na(merged_hhs_phi_clean$g10_benefits_comply_agreement_gear))
+sum(!is.na(merged_hhs_phi_clean$g10_benefits_comply_agreement_gear))
+
+
+# Step 1: Filter only valid (non-NA) responses
+valid_responses <- merged_hhs_phi_clean %>%
+  filter(!is.na(g10_benefits_comply_agreement_gear))
+
+# Step 2: Count entries per municipality-year and filter only those with >= 10
+valid_munis_per_year <- valid_responses %>%
+  group_by(municipality, year) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n >= 10)
+
+# Step 3: Join back to original data to keep only valid municipality-years
+filtered_data <- valid_responses %>%
+  inner_join(valid_munis_per_year, by = c("municipality", "year"))
+
+# Step 4: Identify municipalities with more than one year of valid data
+multi_year_municipalities <- filtered_data %>%
+  distinct(municipality, year) %>%
+  count(municipality) %>%
+  filter(n > 1) %>%
+  pull(municipality)
+
+# Step 5: Keep only data from those municipalities
+final_data <- filtered_data %>%
+  filter(municipality %in% multi_year_municipalities)
+
+# Step 6: Calculate positive response share per year and municipality
+summary_data <- final_data %>%
+  mutate(positive = g10_benefits_comply_agreement_gear %in% c("Agree", "Strongly agree")) %>%
+  group_by(municipality, year) %>%
+  summarise(
+    n = n(),
+    n_positive = sum(positive, na.rm = TRUE),
+    pct_positive = n_positive / n * 100,
+    .groups = "drop"
+  )
+
+# Step 7: Calculate % change relative to the first year
+change_summary_g10 <- summary_data %>%
+  arrange(municipality, year) %>%
+  group_by(municipality) %>%
+  mutate(
+    first_year_pct = first(pct_positive),
+    pct_change_from_first = if_else(year == first(year), NA_real_,
+                                    (pct_positive - first_year_pct) / first_year_pct * 100)
+  ) %>%
+  ungroup()
+
+# View result
+change_summary_g10
+
+
+```
+
+
+# Social norms support biodiversity protection 
+
+--> How wrong would it be to violate gear restrictions? (g12_how_wrong_gear)
+Not wrong at all - Extremely wrong
+
+```{r}
+sum(is.na(merged_hhs_phi_clean$g12_how_wrong_gear))
+sum(!is.na(merged_hhs_phi_clean$g12_how_wrong_gear))
+
+unique(merged_hhs_phi_clean$g12_how_wrong_gear)
+
+# Step 0: Clean municipality names (trim whitespace and standardize case)
+merged_hhs_phi_clean <- merged_hhs_phi_clean %>%
+  mutate(municipality = str_trim(str_to_title(municipality)))  # trim spaces + title case
+
+# Step 1: Filter out only non-NA responses
+valid_responses <- merged_hhs_phi_clean %>%
+  filter(!is.na(g12_how_wrong_gear))
+
+# Step 2: Keep only municipality-year combinations with >10 non-NA responses
+valid_muni_years <- valid_responses %>%
+  group_by(municipality, year) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n > 10)
+
+# Step 3: Keep only those municipality-year pairs
+filtered_data <- valid_responses %>%
+  inner_join(valid_muni_years, by = c("municipality", "year"))
+
+# Step 4: Keep only municipalities with more than 1 year of valid data
+multi_year_municipalities <- filtered_data %>%
+  distinct(municipality, year) %>%
+  count(municipality) %>%
+  filter(n > 1) %>%
+  pull(municipality)
+
+final_data <- filtered_data %>%
+  filter(municipality %in% multi_year_municipalities)
+
+# Step 5: Calculate percentage of "Very wrong" or "Extremely wrong"
+summary_data <- final_data %>%
+  mutate(
+    strong_disapproval = g12_how_wrong_gear %in% c("Very wrong", "Extremely wrong")
+  ) %>%
+  group_by(municipality, year) %>%
+  summarise(
+    n = n(),
+    n_strong_disapproval = sum(strong_disapproval, na.rm = TRUE),
+    pct_strong_disapproval = n_strong_disapproval / n * 100,
+    .groups = "drop"
+  )
+
+# Step 6: Calculate relative change from the first year per municipality
+change_summary_g12 <- summary_data %>%
+  arrange(municipality, year) %>%
+  group_by(municipality) %>%
+  mutate(
+    first_year_pct = first(pct_strong_disapproval),
+    pct_change_from_first = if_else(
+      year == first(year),
+      NA_real_,
+      (pct_strong_disapproval - first_year_pct) / first_year_pct * 100
+    )
+  ) %>%
+  ungroup()
+
+# View result
+change_summary_g12
+
+
+
+```
+
+
+
+# Pro-biodiversity protection behaviors --> Out of 10 fishers in your community waters, how many would you guess use gear that is not permitted? (g10_enforcement_regulation_fishers_gear_not_permitted)
+1-10
+
+```{r}
+sum(is.na(merged_hhs_phi_clean$g10_enforcement_regulation_fishers_gear_not_permitted))
+sum(!is.na(merged_hhs_phi_clean$g10_enforcement_regulation_fishers_gear_not_permitted))
+
+# Step 0: Clean municipality names and convert the target column to numeric
+merged_hhs_phi_clean <- merged_hhs_phi_clean %>%
+  mutate(
+    municipality = str_trim(str_to_title(municipality)),
+    g10_enforcement_regulation_fishers_gear_not_permitted = as.numeric(g10_enforcement_regulation_fishers_gear_not_permitted)
+  )
+
+# Step 1: Filter non-NA responses
+valid_responses <- merged_hhs_phi_clean %>%
+  filter(!is.na(g10_enforcement_regulation_fishers_gear_not_permitted))
+
+# Step 2: Identify municipality-year pairs with more than 10 non-NA responses
+valid_muni_years <- valid_responses %>%
+  group_by(municipality, year) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  filter(n > 10)
+
+# Step 3: Keep only valid municipality-year pairs
+filtered_data <- valid_responses %>%
+  inner_join(valid_muni_years, by = c("municipality", "year"))
+
+# Step 4: Keep municipalities with more than one year of valid data
+multi_year_municipalities <- filtered_data %>%
+  distinct(municipality, year) %>%
+  count(municipality) %>%
+  filter(n > 1) %>%
+  pull(municipality)
+
+final_data <- filtered_data %>%
+  filter(municipality %in% multi_year_municipalities)
+
+# Step 5: Calculate percent of responses in the range 0 to 5
+summary_data <- final_data %>%
+  mutate(
+    permitted_range = g10_enforcement_regulation_fishers_gear_not_permitted <= 5
+  ) %>%
+  group_by(municipality, year) %>%
+  summarise(
+    n = n(),
+    n_permitted_range = sum(permitted_range, na.rm = TRUE),
+    pct_permitted_range = n_permitted_range / n * 100,
+    .groups = "drop"
+  )
+
+# Step 6: Calculate relative change from the first year
+change_summary_g10e <- summary_data %>%
+  arrange(municipality, year) %>%
+  group_by(municipality) %>%
+  mutate(
+    first_year_pct = first(pct_permitted_range),
+    pct_change_from_first = if_else(
+      year == first(year),
+      NA_real_,
+      (pct_permitted_range - first_year_pct) / first_year_pct * 100
+    )
+  ) %>%
+  ungroup()
+
+# View the result
+change_summary_g10e
+
+```
+
